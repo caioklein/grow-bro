@@ -4,6 +4,8 @@
 
 **Um diário de cultivo simples e com possibilidade de ser 100% local**
 
+Pode ser acessado pelo link: https://caioklein.github.io/grow-bro/ ou usado localmente na sua máquina com os arquivos desse repositório.
+
 Acompanhe rega, nutrientes, ambiente (temperatura, umidade, VPD, PPFD, DLI) e o desenvolvimento de
 cada planta, dia após dia, com faixas de referência inteligentes, gráficos interativos e importação
 direta de planilhas.
@@ -40,7 +42,6 @@ visão geral, sem gráficos de verdade. O **GrowBro** é a alternativa — um ap
 única que roda direto no navegador, guarda tudo no seu computador, e transforma anotações diárias
 em algo que dá pra *olhar* e entender de relance.
 
-Sem cadastro. Sem nuvem. Sem instalação. Baixe dois arquivos, abra no navegador, comece a registrar.
 
 ## ✨ Funcionalidades
 
