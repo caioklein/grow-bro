@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Diário de Cultivo</title>
+<title>GrowBro</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <style>
 /* ============================================================
    DESIGN TOKENS — tema claro, pastel
@@ -105,6 +106,31 @@ p{margin:0;}
 }
 #app.sidebar-collapsed{grid-template-columns:64px 1fr;}
 
+/* ---------- Barra superior / drawer / FAB do modo mobile
+   (escondidos por padrão; ativados só abaixo do breakpoint mobile) ---------- */
+.mobile-topbar{
+  display:none; position:fixed; top:0; left:0; right:0; height:54px; z-index:40;
+  align-items:center; justify-content:space-between; gap:10px; padding:0 12px;
+  background:var(--bg-raised); border-bottom:1px solid var(--border-soft);
+}
+.mobile-topbar-title{font-family:var(--font-display); font-weight:600; font-size:16px;}
+.mobile-menu-btn{
+  width:38px; height:38px; border-radius:10px; border:1px solid var(--border); flex:none;
+  background:var(--bg-raised); font-size:18px; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; color:var(--text-dim); padding:0;
+}
+.mobile-menu-btn:hover{border-color:var(--leaf-dim); color:var(--leaf-bright);}
+.sidebar-backdrop{display:none; position:fixed; inset:0; background:rgba(20,30,15,0.4); z-index:55;}
+.sidebar-backdrop.show{display:block;}
+.fab{
+  display:none; position:fixed; bottom:22px; right:18px; width:56px; height:56px;
+  border-radius:50%; background:var(--leaf-dim); color:#fff; border:none;
+  font-size:28px; line-height:1; box-shadow:0 8px 20px rgba(60,100,70,0.35);
+  z-index:35; cursor:pointer; align-items:center; justify-content:center;
+}
+.fab:hover{background:var(--leaf-bright);}
+.fab.fab-hidden{display:none !important;}
+
 /* ---------- Sidebar ---------- */
 .sidebar{
   position:relative;
@@ -198,6 +224,30 @@ p{margin:0;}
 .sidebar-foot{margin-top:auto; padding:10px 8px 2px; font-size:11px; color:var(--text-faint); border-top:1px solid var(--border-soft); display:flex; flex-direction:column; gap:8px;}
 .sidebar-foot .btn-ghost-row{border-style:solid;}
 .sidebar-foot-note{white-space:normal;}
+
+/* ---------- Conta Google / sincronização ---------- */
+.account-card{
+  display:flex; align-items:center; gap:8px; padding:7px 9px;
+  border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface);
+}
+.account-avatar{width:26px; height:26px; border-radius:50%; flex:none; object-fit:cover;}
+.account-avatar-fallback{
+  width:26px; height:26px; border-radius:50%; flex:none; background:var(--leaf-dim); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600;
+  font-family:var(--font-display);
+}
+.account-info{display:flex; flex-direction:column; min-width:0; flex:1; gap:1px;}
+.account-email{font-size:11.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.account-sync-status{font-size:10px; color:var(--text-faint); display:flex; align-items:center; gap:4px;}
+.account-sync-status .dot{width:6px; height:6px; border-radius:50%; background:var(--leaf-dim); flex:none;}
+.account-sync-status.syncing .dot{background:var(--amber-dim); animation:sync-pulse 1s infinite;}
+.account-sync-status.error{color:var(--alert);}
+.account-sync-status.error .dot{background:var(--alert);}
+@keyframes sync-pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
+.account-card .icon-btn{flex:none;}
+.sidebar.collapsed .account-card{padding:6px; justify-content:center;}
+.sidebar.collapsed .account-card .account-info,
+.sidebar.collapsed .account-card .icon-btn{display:none;}
 
 /* ---------- Modo recolhido: esconder textos, deixar só ícones/avatares
    bem centralizados e do mesmo tamanho, como uma dock de app ---------- */
@@ -522,9 +572,119 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
   .hero-strip{grid-template-columns:repeat(5,1fr);}
   .chart-grid{grid-template-columns:1fr;}
 }
+
+/* ============================================================
+   MODO MOBILE — mesmo visual (cores, tipografia, cantos
+   arredondados), reorganizado para uso com o polegar:
+   barra lateral vira gaveta, tabela de registros vira cartões,
+   modais ocupam a tela toda, e um botão flutuante substitui o
+   "+ Novo registro" do topo.
+   ============================================================ */
+@media (max-width:780px){
+  #app{grid-template-columns:1fr; min-width:0;}
+  .mobile-topbar{display:flex;}
+  .main{padding:70px 14px 90px;}
+
+  .sidebar-toggle{display:none;}
+  .sidebar{
+    position:fixed; top:0; left:0; bottom:0; width:280px; max-width:84vw;
+    z-index:60; transform:translateX(-100%); border-right:none;
+    box-shadow:0 0 40px rgba(20,30,15,0.28);
+    padding:18px 16px 16px;
+  }
+  .sidebar.mobile-open{transform:translateX(0);}
+  /* No modo gaveta a barra sempre mostra o conteúdo completo — o modo
+     "recolhido só com ícones" é um recurso de desktop. */
+  .sidebar.collapsed{padding:18px 16px 16px;}
+  .sidebar.collapsed .brand-text,
+  .sidebar.collapsed .sidebar-label,
+  .sidebar.collapsed .bgr-label,
+  .sidebar.collapsed .gi-name,
+  .sidebar.collapsed .sidebar-foot-note,
+  .sidebar.collapsed #sidebarPlantsSection{display:revert;}
+  .sidebar.collapsed .nav-home-btn,
+  .sidebar.collapsed .btn-ghost-row,
+  .sidebar.collapsed .grow-item{width:auto; height:auto; padding:9px 10px; margin:0; border-radius:var(--radius-sm); justify-content:flex-start;}
+  .sidebar.collapsed .gi-avatar{width:24px; height:24px; font-size:11px;}
+
+  .topbar{flex-direction:column; align-items:stretch; gap:12px;}
+  .topbar-title-row{flex-wrap:wrap;}
+  .topbar h2{font-size:21px;}
+  .topbar-actions{width:100%;}
+  .topbar-actions #btnNovoRegistro{display:none;} /* o FAB assume esse papel no mobile */
+  .topbar-actions #btnExcluirCultivo{width:100%;}
+
+  .hero-strip{grid-template-columns:repeat(2,1fr);}
+  .hero-cell{padding:12px;}
+
+  .tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap;}
+  .tab-btn{white-space:nowrap;}
+
+  .form-grid,
+  .form-grid.cols-3,
+  .form-grid.cols-2{grid-template-columns:1fr 1fr;}
+
+  .overview-grid,
+  .chart-grid,
+  .plant-grid{grid-template-columns:1fr;}
+
+  .detail-inner{grid-template-columns:1fr; padding:16px;}
+  .kv-grid{grid-template-columns:repeat(2,1fr);}
+
+  /* Tabela de Registros -> cartões. As colunas secundárias (estágio,
+     litros, pH/EC de entrada, temp/umidade) somem do cartão compacto —
+     continuam disponíveis ao tocar para expandir o registro. */
+  .table-wrap{border:none; background:transparent;}
+  table.reg-table, table.reg-table tbody{display:block; width:100%;}
+  table.reg-table thead{display:none;}
+  table.reg-table tr.row-main{
+    display:grid; gap:8px 10px;
+    grid-template-columns:1fr auto;
+    grid-template-areas:"date actions" "activity activity" "nutrients nutrients";
+    background:var(--bg-raised); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
+    padding:14px; margin-bottom:10px;
+  }
+  table.reg-table tr.row-main td{display:block; padding:0; border:none;}
+  table.reg-table tr.row-main td:nth-child(1){grid-area:date;}
+  table.reg-table tr.row-main td:nth-child(3){grid-area:activity;}
+  table.reg-table tr.row-main td:nth-child(4){grid-area:nutrients;}
+  table.reg-table tr.row-main td:nth-child(9){grid-area:actions; align-self:start;}
+  table.reg-table tr.row-main td:nth-child(2),
+  table.reg-table tr.row-main td:nth-child(5),
+  table.reg-table tr.row-main td:nth-child(6),
+  table.reg-table tr.row-main td:nth-child(7),
+  table.reg-table tr.row-main td:nth-child(8){display:none;}
+  table.reg-table tr.detail-row{display:block;}
+  table.reg-table tr.detail-row td{display:block; padding:0;}
+
+  /* Modais ocupam a tela toda — mais fácil de preencher com o teclado
+     aberto do que uma caixa flutuante pequena. */
+  .modal-overlay{padding:0; align-items:stretch;}
+  .modal{max-width:100%; width:100%; height:100%; max-height:100%; border-radius:0; display:flex; flex-direction:column;}
+  .modal-body{flex:1; max-height:none;}
+
+  .plant-reading-table{display:block; overflow-x:auto;}
+
+  .icon-btn{padding:7px;}
+}
+@media (max-width:420px){
+  .hero-strip{grid-template-columns:repeat(2,1fr);}
+  .form-grid,
+  .form-grid.cols-3,
+  .form-grid.cols-2{grid-template-columns:1fr;}
+  .kv-grid{grid-template-columns:1fr;}
+}
 </style>
 </head>
 <body>
+
+<!-- ============ BARRA SUPERIOR MOBILE (só aparece em telas estreitas) ============ -->
+<div class="mobile-topbar" id="mobileTopbar">
+  <button class="mobile-menu-btn" id="btnOpenMobileSidebar" aria-label="Abrir menu" title="Abrir menu">☰</button>
+  <span class="mobile-topbar-title">GrowBro</span>
+  <span style="width:38px;"></span>
+</div>
+<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
 <div id="app">
   <button class="sidebar-toggle" id="btnToggleSidebar" title="Recolher barra lateral">‹</button>
@@ -538,7 +698,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
         <line x1="13" y1="8" x2="13" y2="23" stroke="#B7D6BC" stroke-width="1.1"/>
       </svg>
       <div class="brand-text">
-        <h1>Diário de Cultivo</h1>
+        <h1>GrowBro</h1>
         <span>acompanhamento diário</span>
       </div>
     </div>
@@ -562,7 +722,8 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
     <div class="sidebar-foot">
       <button class="btn-ghost-row" id="btnAbrirImportar" title="Importar planilha"><span class="bgr-icon">📥</span><span class="bgr-label">Importar planilha</span></button>
       <button class="btn-ghost-row" id="btnAbrirProgramas" title="Programas de nutrição"><span class="bgr-icon">🧪</span><span class="bgr-label">Programas de nutrição</span></button>
-      <span class="sidebar-foot-note">Dados salvos localmente no seu navegador.</span>
+      <div id="accountBlock" class="account-block"></div>
+      <span class="sidebar-foot-note" id="sidebarFootNote">Dados salvos localmente no seu navegador.</span>
     </div>
   </aside>
 
@@ -665,14 +826,13 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
           </div>
           <div class="form-grid" style="margin-top:12px;">
             <div class="field">
-              <label for="fDli">DLI</label>
-              <div class="input-suffix-wrap"><input type="number" step="0.1" id="fDli" placeholder="0.0"><span class="input-suffix">mol/dia</span></div>
+              <label for="fDli">DLI <span class="auto-badge">automático</span></label>
+              <div class="input-suffix-wrap"><input type="number" step="0.1" id="fDli" placeholder="0.0" readonly><span class="input-suffix">mol/dia</span></div>
               <span class="range-hint" id="dliHint"></span>
               <div class="calc-row">
                 <span class="hint">fotoperíodo:</span>
                 <input type="number" class="calc-mini-input" id="calcFotoperiodo" value="18" step="0.5">
-                <span class="hint">h</span>
-                <button type="button" class="calc-btn" id="btnCalcDli">calcular a partir do PPFD</button>
+                <span class="hint">h de luz/dia</span>
               </div>
             </div>
           </div>
@@ -900,6 +1060,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
   </div>
 </div>
 
+<button class="fab fab-hidden" id="btnFabNovoRegistro" title="Novo registro" aria-label="Novo registro">+</button>
 <div id="toast"></div>
 
 <script src="app.js"></script>

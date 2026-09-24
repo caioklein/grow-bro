@@ -180,6 +180,9 @@
     editingPlantaId: null,
     editingProgramId: null,
     confirmAction: null,
+    cancelAction: null,
+    _confirmResolved: false,
+    _confirmWasOpen: false,
     nutrienteTarget: null, // { list, rerender } — para onde vai o próximo nutriente adicionado
     tendenciasFiltro: { inicio: null, fim: null }, // null/null = mostrar todo o histórico
   };
@@ -201,6 +204,7 @@
   function defaultState() {
     return {
       version: 2,
+      updatedAt: 0,
       nutrientCategories: NUTRIENT_CATEGORIES_PADRAO.map(c => ({ ...c })),
       nutrients: NUTRIENTES_PADRAO.map(n => ({ ...n })),
       activityCatalog: ATIVIDADES_PADRAO.slice(),
@@ -211,6 +215,7 @@
   }
 
   function migrate(parsed) {
+    if (typeof parsed.updatedAt !== "number") parsed.updatedAt = 0;
     if (!Array.isArray(parsed.nutrientCategories)) {
       parsed.nutrientCategories = NUTRIENT_CATEGORIES_PADRAO.map(c => ({ ...c }));
     }
@@ -266,11 +271,13 @@
   }
 
   function save() {
+    state.updatedAt = Date.now();
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       showToast("Não foi possível salvar (armazenamento indisponível).");
     }
+    schedulePush();
   }
 
   /* ---------------------------------------------------------
@@ -424,16 +431,33 @@
   preventNativeSubmit("formNutriente", "btnSalvarNutriente");
   preventNativeSubmit("formRegistro", "btnSalvarRegistro");
 
-  function askConfirm(title, text, onConfirm) {
+  function askConfirm(title, text, onConfirm, onCancel) {
     document.getElementById("confirmTitle").textContent = title;
     document.getElementById("confirmText").textContent = text;
     ui.confirmAction = onConfirm;
+    ui.cancelAction = onCancel || null;
+    ui._confirmResolved = false;
+    ui._confirmWasOpen = true;
     openModal("modalConfirm");
   }
   document.getElementById("btnConfirmAction").addEventListener("click", () => {
+    ui._confirmResolved = true;
     if (typeof ui.confirmAction === "function") ui.confirmAction();
     closeModal("modalConfirm");
   });
+  // Observa o próprio modalConfirm fechar por QUALQUER via (botão Cancelar,
+  // X, clique no fundo, Esc) para poder disparar onCancel de forma
+  // confiável, sem duplicar essa lógica em cada caminho de fechamento.
+  (function watchConfirmModalClose() {
+    const el = document.getElementById("modalConfirm");
+    const observer = new MutationObserver(() => {
+      if (!el.classList.contains("open") && ui._confirmWasOpen) {
+        ui._confirmWasOpen = false;
+        if (!ui._confirmResolved && typeof ui.cancelAction === "function") ui.cancelAction();
+      }
+    });
+    observer.observe(el, { attributes: true, attributeFilter: ["class"] });
+  })();
 
   /* ===========================================================
      RENDER: SIDEBAR
@@ -511,6 +535,7 @@
   function renderMain() {
     const main = document.getElementById("mainContent");
     const grow = getSelectedGrow();
+    document.getElementById("btnFabNovoRegistro").classList.toggle("fab-hidden", !grow);
 
     if (!grow) {
       main.innerHTML = `
@@ -859,6 +884,7 @@
     }).join("");
 
     const vpdSt = vpdStatus(entry.vpd, entry.estagio);
+    const phEntradaSt = phStatus(entry.phEntrada, grow.tipo);
 
     return `
       <tr class="detail-row"><td colspan="9">
@@ -868,12 +894,16 @@
             <div class="nutrient-tags" style="margin-bottom:16px;">${nutrientsFull}</div>
             <h4>Ambiente registrado</h4>
             <div class="kv-grid">
+              <div class="kv"><span class="kv-label">Estágio</span><span class="kv-value">${escapeHtml(entry.estagio)}</span></div>
+              <div class="kv"><span class="kv-label">Litros</span><span class="kv-value">${fmtNum(entry.litros,1)} L</span></div>
+              <div class="kv"><span class="kv-label">pH entrada</span><span class="kv-value ${rangeTextClass(phEntradaSt)}">${fmtNum(entry.phEntrada,2)}</span></div>
+              <div class="kv"><span class="kv-label">PPM entrada</span><span class="kv-value">${fmtNum(entry.ppmEntrada,0)} ppm</span></div>
+              <div class="kv"><span class="kv-label">EC entrada</span><span class="kv-value">${fmtNum(entry.ecEntrada,2)} mS/cm</span></div>
               <div class="kv"><span class="kv-label">Temperatura</span><span class="kv-value">${fmtNum(entry.temperatura,1)} °C</span></div>
               <div class="kv"><span class="kv-label">Umidade</span><span class="kv-value">${fmtNum(entry.umidade,0)} %</span></div>
               <div class="kv"><span class="kv-label">VPD</span><span class="kv-value ${rangeTextClass(vpdSt)}">${fmtNum(entry.vpd,2)} kPa</span></div>
               <div class="kv"><span class="kv-label">PPFD</span><span class="kv-value">${fmtNum(entry.ppfd,0)} µmol</span></div>
               <div class="kv"><span class="kv-label">DLI</span><span class="kv-value">${fmtNum(entry.dli,1)} mol/d</span></div>
-              <div class="kv"><span class="kv-label">Litros</span><span class="kv-value">${fmtNum(entry.litros,1)} L</span></div>
             </div>
           </div>
           <div class="detail-block">
@@ -2222,6 +2252,7 @@
     const estagio = document.getElementById("fEstagio").value;
     const lr = (LIGHT_RANGES[grow.tipo] || {})[estagio];
     if (lr) document.getElementById("calcFotoperiodo").value = lr.horas;
+    recomputeDliField();
   }
 
   function refreshFormRangeIndicators(grow) {
@@ -2290,10 +2321,10 @@
     document.getElementById("fTemp").value = entry ? entry.temperatura ?? "" : "";
     document.getElementById("fUmidade").value = entry ? entry.umidade ?? "" : "";
     document.getElementById("fPpfd").value = entry ? entry.ppfd ?? "" : "";
-    document.getElementById("fDli").value = entry ? entry.dli ?? "" : "";
     document.getElementById("fObservacoes").value = entry ? entry.observacoes ?? "" : "";
     recomputeVpdField();
-    if (!isEdit) applyLightDefaultsForStage(grow);
+    applyLightDefaultsForStage(grow);
+    recomputeDliField();
 
     renderSaidaTable(grow, entry);
     refreshFormRangeIndicators(grow);
@@ -2315,6 +2346,16 @@
       vpdField.value = "";
     }
   }
+  function recomputeDliField() {
+    const ppfd = parseFloat(document.getElementById("fPpfd").value);
+    const hours = parseFloat(document.getElementById("calcFotoperiodo").value);
+    const dliField = document.getElementById("fDli");
+    if (!isNaN(ppfd) && !isNaN(hours)) {
+      dliField.value = calcDLI(ppfd, hours);
+    } else {
+      dliField.value = "";
+    }
+  }
   document.getElementById("fTemp").addEventListener("input", () => {
     recomputeVpdField();
     const grow = getSelectedGrow();
@@ -2329,18 +2370,13 @@
     const grow = getSelectedGrow();
     if (grow) refreshFormRangeIndicators(grow);
   });
+  document.getElementById("fPpfd").addEventListener("input", recomputeDliField);
+  document.getElementById("calcFotoperiodo").addEventListener("input", recomputeDliField);
   document.getElementById("fEstagio").addEventListener("change", () => {
     const grow = getSelectedGrow();
     if (!grow) return;
     applyLightDefaultsForStage(grow);
     refreshFormRangeIndicators(grow);
-  });
-
-  document.getElementById("btnCalcDli").addEventListener("click", () => {
-    const ppfd = parseFloat(document.getElementById("fPpfd").value);
-    const hours = parseFloat(document.getElementById("calcFotoperiodo").value);
-    if (isNaN(ppfd) || isNaN(hours)) { showToast("Informe o PPFD e o fotoperíodo."); return; }
-    document.getElementById("fDli").value = calcDLI(ppfd, hours);
   });
 
   function numOrNull(v) {
@@ -2419,6 +2455,192 @@
   function escapeAttr(str) { return escapeHtml(str); }
 
   /* ---------------------------------------------------------
+     SINCRONIZAÇÃO COM CONTA GOOGLE (via Supabase)
+     ---------------------------------------------------------
+     A chave abaixo é a chave pública ("publishable"/anon) do Supabase —
+     ela é feita para ser exposta no cliente (o acesso real é controlado
+     por Row Level Security no banco). O Client ID/Secret do Google NUNCA
+     entram aqui: eles ficam configurados no painel do Supabase
+     (Authentication → Providers → Google), que faz a troca de tokens do
+     lado do servidor. Veja SYNC-SETUP.md para o passo a passo completo.
+     --------------------------------------------------------- */
+  const SUPABASE_URL = "https://klaktdvanzuooddxlvsb.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_A3vUvh_h5dPFS8MC_OdPrg_UMc5f66u";
+  const SYNC_TABLE = "growbro_data";
+
+  const supa = (window.supabase && window.supabase.createClient)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+  let authSession = null;
+  let syncStatus = "idle"; // idle | syncing | synced | error
+  let pushTimer = null;
+
+  function setSyncStatus(status) {
+    syncStatus = status;
+    renderAccountBlock();
+  }
+
+  function renderAccountBlock() {
+    const el = document.getElementById("accountBlock");
+    const note = document.getElementById("sidebarFootNote");
+    if (!el || !note) return;
+
+    if (!supa) {
+      el.innerHTML = "";
+      note.textContent = "Dados salvos localmente no seu navegador.";
+      return;
+    }
+    if (!authSession) {
+      el.innerHTML = `<button class="btn-ghost-row account-login-btn" id="btnGoogleLogin" title="Entrar com Google"><span class="bgr-icon">🔐</span><span class="bgr-label">Entrar com Google</span></button>`;
+      document.getElementById("btnGoogleLogin").addEventListener("click", loginWithGoogle);
+      note.textContent = "Dados salvos localmente no seu navegador.";
+      return;
+    }
+
+    const user = authSession.user;
+    const email = user.email || "conta Google";
+    const avatarUrl = user.user_metadata && user.user_metadata.avatar_url;
+    const initial = (email[0] || "?").toUpperCase();
+    const statusLabel = { syncing: "Sincronizando…", error: "Erro ao sincronizar" }[syncStatus] || "Sincronizado";
+    const statusClass = syncStatus === "syncing" ? "syncing" : (syncStatus === "error" ? "error" : "");
+    el.innerHTML = `
+      <div class="account-card">
+        ${avatarUrl
+          ? `<img class="account-avatar" src="${escapeAttr(avatarUrl)}" referrerpolicy="no-referrer" alt="">`
+          : `<span class="account-avatar-fallback">${escapeHtml(initial)}</span>`}
+        <div class="account-info">
+          <span class="account-email">${escapeHtml(email)}</span>
+          <span class="account-sync-status ${statusClass}"><span class="dot"></span>${statusLabel}</span>
+        </div>
+        <button class="icon-btn" id="btnLogout" title="Sair">⎋</button>
+      </div>`;
+    document.getElementById("btnLogout").addEventListener("click", logoutFromGoogle);
+    note.textContent = "Sincronizado com sua conta Google.";
+  }
+
+  async function loginWithGoogle() {
+    if (!supa) return;
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await supa.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
+    if (error) showToast("Não foi possível iniciar o login: " + error.message);
+  }
+
+  async function logoutFromGoogle() {
+    if (!supa) return;
+    await supa.auth.signOut();
+    showToast("Você saiu da conta. Os dados continuam salvos neste navegador.");
+  }
+
+  function schedulePush() {
+    if (!supa || !authSession) return;
+    clearTimeout(pushTimer);
+    setSyncStatus("syncing");
+    pushTimer = setTimeout(pushToCloud, 1200);
+  }
+
+  async function pushToCloud() {
+    if (!supa || !authSession) return;
+    try {
+      const payload = { user_id: authSession.user.id, data: state, updated_at: new Date().toISOString() };
+      const { error } = await supa.from(SYNC_TABLE).upsert(payload, { onConflict: "user_id" });
+      if (error) throw error;
+      setSyncStatus("idle");
+    } catch (e) {
+      setSyncStatus("error");
+    }
+  }
+
+  function adoptRemoteState(remoteState) {
+    state = migrate(remoteState);
+    if (!state.selectedGrowId && state.grows.length) state.selectedGrowId = state.grows[0].id;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    renderAll();
+  }
+
+  // Compara dois estados ignorando o timestamp — só pra saber se já estão
+  // de fato em sincronia (evita perguntar à toa quando nada mudou).
+  function statesLookEquivalent(a, b) {
+    const strip = (s) => { const c = { ...s }; delete c.updatedAt; return JSON.stringify(c); };
+    try { return strip(a) === strip(b); } catch (e) { return false; }
+  }
+
+  // Ao entrar, decide o que fazer com o que já existe na nuvem para essa
+  // conta: se só um lado tem dados, usa esse lado sem perguntar; se os
+  // dois têm dados diferentes, SEMPRE pergunta — mesmo que um pareça mais
+  // recente — porque "mais recente neste aparelho" não quer dizer "já viu
+  // as mudanças do outro aparelho". Isso é "o último lado escolhido vence"
+  // no nível do cultivo inteiro, não uma mesclagem campo a campo.
+  async function handlePostLoginSync() {
+    if (!supa || !authSession) return;
+    setSyncStatus("syncing");
+    try {
+      const { data, error } = await supa
+        .from(SYNC_TABLE)
+        .select("data, updated_at")
+        .eq("user_id", authSession.user.id)
+        .maybeSingle();
+      if (error) throw error;
+
+      const localHasContent = state.grows.length > 0;
+      const remoteState = data && data.data;
+      const remoteHasContent = remoteState && Array.isArray(remoteState.grows) && remoteState.grows.length > 0;
+
+      if (remoteHasContent && !localHasContent) {
+        // Nada a perder localmente — adota a nuvem. Ela já está correta,
+        // não precisa reenviar nada.
+        adoptRemoteState(remoteState);
+        setSyncStatus("idle");
+        return;
+      }
+
+      if (remoteHasContent && localHasContent && !statesLookEquivalent(state, remoteState)) {
+        const remoteUpdated = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+        const remoteIsNewer = remoteUpdated > (state.updatedAt || 0);
+        setSyncStatus("idle");
+        // Importante: NÃO agenda envio nenhum aqui. Enviar antes do
+        // usuário decidir arriscaria sobrescrever a nuvem com o estado
+        // deste aparelho antes mesmo dele escolher usar a nuvem.
+        askConfirm(
+          "Dados encontrados na nuvem",
+          `Esta conta já tem dados salvos na nuvem${remoteIsNewer ? " e parecem mais recentes que os deste dispositivo" : ""}. Usar os dados da nuvem? Isso substitui os dados deste dispositivo.`,
+          () => adoptRemoteState(remoteState), // "Confirmar" = usar a nuvem
+          () => schedulePush() // "Cancelar" = manter este aparelho e enviá-lo
+        );
+        return;
+      }
+
+      // Nuvem vazia, ou já idêntica ao que está aqui: seguro sincronizar.
+      setSyncStatus("idle");
+      schedulePush();
+    } catch (e) {
+      setSyncStatus("error");
+    }
+  }
+
+  function cleanupOAuthUrlFragments() {
+    if (window.location.hash && /access_token|refresh_token/.test(window.location.hash)) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }
+
+  function setupAuthListener() {
+    if (!supa) { renderAccountBlock(); return; }
+    supa.auth.onAuthStateChange((event, session) => {
+      authSession = session;
+      renderAccountBlock();
+      if (event === "SIGNED_IN") {
+        cleanupOAuthUrlFragments();
+        handlePostLoginSync();
+      }
+    });
+    supa.auth.getSession().then(({ data }) => {
+      authSession = data.session;
+      renderAccountBlock();
+    });
+  }
+
+  /* ---------------------------------------------------------
      BARRA LATERAL — recolher/expandir
      --------------------------------------------------------- */
   const SIDEBAR_COLLAPSE_KEY = "diario-cultivo:sidebar-collapsed";
@@ -2436,6 +2658,32 @@
   });
 
   /* ---------------------------------------------------------
+     BARRA LATERAL NO MOBILE — abre como gaveta por cima do conteúdo
+     --------------------------------------------------------- */
+  function isMobileViewport() {
+    if (typeof window.matchMedia !== "function") return window.innerWidth <= 780;
+    return window.matchMedia("(max-width: 780px)").matches;
+  }
+  function openMobileSidebar() {
+    document.getElementById("sidebar").classList.add("mobile-open");
+    document.getElementById("sidebarBackdrop").classList.add("show");
+  }
+  function closeMobileSidebar() {
+    document.getElementById("sidebar").classList.remove("mobile-open");
+    document.getElementById("sidebarBackdrop").classList.remove("show");
+  }
+  document.getElementById("btnOpenMobileSidebar").addEventListener("click", openMobileSidebar);
+  document.getElementById("sidebarBackdrop").addEventListener("click", closeMobileSidebar);
+  // Qualquer clique num item de navegação dentro da barra (trocar de
+  // cultivo, abrir um modal, etc.) fecha a gaveta — sem isso ela ficaria
+  // aberta por cima do modal recém-aberto.
+  document.getElementById("sidebar").addEventListener("click", (e) => {
+    if (e.target.closest("button, .grow-item, .plant-chip-row")) closeMobileSidebar();
+  });
+
+  document.getElementById("btnFabNovoRegistro").addEventListener("click", () => openRegistroModal(null));
+
+  /* ---------------------------------------------------------
      INIT
      --------------------------------------------------------- */
   function init() {
@@ -2446,7 +2694,11 @@
     let startCollapsed = false;
     try { startCollapsed = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1"; } catch (e) { /* ignore */ }
     setSidebarCollapsed(startCollapsed);
+    // O modo "recolhido só com ícones" é um recurso de desktop; no mobile
+    // a barra é uma gaveta que, quando aberta, sempre mostra tudo.
+    if (isMobileViewport()) document.getElementById("sidebar").classList.remove("collapsed");
     renderAll();
+    setupAuthListener();
   }
 
   document.addEventListener("DOMContentLoaded", init);
