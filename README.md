@@ -2,7 +2,7 @@
 
 # 🌿 GrowBro
 
-**Um diário de cultivo local-first, rápido e bonito — sem servidor, sem conta, sem instalação.**
+**Um diário de cultivo simples e com possibilidade de ser 100% local**
 
 Acompanhe rega, nutrientes, ambiente (temperatura, umidade, VPD, PPFD, DLI) e o desenvolvimento de
 cada planta, dia após dia, com faixas de referência inteligentes, gráficos interativos e importação
@@ -222,5 +222,4 @@ Pull requests são bem-vindos. Como é um projeto de arquivo único sem build, o
 
 ## 📜 Licença
 
-Distribuído sob a licença [MIT](https://opensource.org/licenses/MIT) — use, modifique e compartilhe
-à vontade. Troque por outra licença se preferir.
+Distribuído sob a licença GPL-3.0 license
