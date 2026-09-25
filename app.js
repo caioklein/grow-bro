@@ -2476,6 +2476,29 @@
   let syncStatus = "idle"; // idle | syncing | synced | error
   let pushTimer = null;
 
+  // O redirecionamento de volta do Google pode já trazer a sessão pronta
+  // (via #access_token na URL) muito antes do DOMContentLoaded — e antes
+  // do nosso próprio estado (load()) existir. Por isso o listener é
+  // registrado JÁ AQUI, no carregamento do script, para nunca perder esse
+  // evento; mas o processamento de verdade (sincronizar, mexer no DOM)
+  // só acontece depois que appReady vira true, dentro de init().
+  let appReady = false;
+  let pendingSignInEvent = false;
+  if (supa) {
+    supa.auth.onAuthStateChange((event, session) => {
+      authSession = session;
+      if (!appReady) {
+        if (event === "SIGNED_IN") pendingSignInEvent = true;
+        return;
+      }
+      renderAccountBlock();
+      if (event === "SIGNED_IN") {
+        cleanupOAuthUrlFragments();
+        handlePostLoginSync();
+      }
+    });
+  }
+
   function setSyncStatus(status) {
     syncStatus = status;
     renderAccountBlock();
@@ -2511,7 +2534,7 @@
           : `<span class="account-avatar-fallback">${escapeHtml(initial)}</span>`}
         <div class="account-info">
           <span class="account-email">${escapeHtml(email)}</span>
-          <span class="account-sync-status ${statusClass}"><span class="dot"></span>${statusLabel}</span>
+          <span class="account-sync-status ${statusClass}" title="${syncStatus === "error" ? escapeAttr(lastSyncError) : ""}"><span class="dot"></span>${statusLabel}</span>
         </div>
         <button class="icon-btn" id="btnLogout" title="Sair">⎋</button>
       </div>`;
@@ -2539,6 +2562,8 @@
     pushTimer = setTimeout(pushToCloud, 1200);
   }
 
+  let lastSyncError = "";
+
   async function pushToCloud() {
     if (!supa || !authSession) return;
     try {
@@ -2547,6 +2572,8 @@
       if (error) throw error;
       setSyncStatus("idle");
     } catch (e) {
+      lastSyncError = (e && e.message) || String(e);
+      console.error("GrowBro: falha ao enviar dados para a nuvem.", e);
       setSyncStatus("error");
     }
   }
@@ -2614,6 +2641,9 @@
       setSyncStatus("idle");
       schedulePush();
     } catch (e) {
+      lastSyncError = (e && e.message) || String(e);
+      console.error("GrowBro: falha ao consultar os dados na nuvem.", e);
+      showToast("Não foi possível consultar seus dados na nuvem. Veja o console para detalhes.");
       setSyncStatus("error");
     }
   }
@@ -2625,18 +2655,22 @@
   }
 
   function setupAuthListener() {
+    appReady = true;
     if (!supa) { renderAccountBlock(); return; }
-    supa.auth.onAuthStateChange((event, session) => {
-      authSession = session;
-      renderAccountBlock();
-      if (event === "SIGNED_IN") {
-        cleanupOAuthUrlFragments();
-        handlePostLoginSync();
-      }
-    });
+    renderAccountBlock();
+    if (pendingSignInEvent) {
+      pendingSignInEvent = false;
+      cleanupOAuthUrlFragments();
+      handlePostLoginSync();
+    }
+    // Reforço: se por algum motivo o evento não disparou (ex: sessão já
+    // existia de uma visita anterior, sem redirecionamento agora), isso
+    // garante que authSession fique correto mesmo assim.
     supa.auth.getSession().then(({ data }) => {
-      authSession = data.session;
-      renderAccountBlock();
+      if (!authSession && data.session) {
+        authSession = data.session;
+        renderAccountBlock();
+      }
     });
   }
 
