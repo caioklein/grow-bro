@@ -1,6 +1,6 @@
 /* ================================================================
    DIÁRIO DE CULTIVO — lógica da aplicação
-   Tudo é persistido em localStorage, sem dependências externas.
+   Os dados são persistidos localmente e, quando configurado, sincronizados com Supabase via login Google.
    ================================================================ */
 
 (function () {
@@ -10,6 +10,11 @@
      CONSTANTES / CATÁLOGOS PADRÃO
      --------------------------------------------------------- */
   const STORAGE_KEY = "diario-cultivo:v2";
+  const SYNC_DEBOUNCE_MS = 700;
+  let cloudUser = null;
+  let cloudSyncTimer = null;
+  let cloudSyncInProgress = false;
+  let cloudSyncPending = false;
 
   const ESTAGIOS = [
     "Germinação", "Muda", "Vegetativo", "Pré-floração",
@@ -22,24 +27,25 @@
 
   // Cores pastel fixas para as atividades padrão; atividades personalizadas
   // recebem uma cor determinística de uma paleta auxiliar.
+  // As cores vivem como custom properties no CSS (index.html) para que sigam o
+  // tema; aqui guardamos apenas os nomes dos tokens.
   const ATIVIDADE_CORES = {
-    "Daily Check": { bg: "#DCEAF5", fg: "#3E6E91", dot: "#6FB3D9" },
-    "Rega":        { bg: "#E1F0E3", fg: "#3E7A4C", dot: "#7BC47F" },
-    "Flush":       { bg: "#DEF3F1", fg: "#2E7D75", dot: "#5FC2B6" },
-    "Rega & Poda": { bg: "#F5E9D8", fg: "#8C5A2B", dot: "#E2A25E" },
-    "Rega & LST":  { bg: "#EDE3F5", fg: "#6B4C91", dot: "#B79CE0" },
+    "Daily Check": "daily",
+    "Rega":        "rega",
+    "Flush":       "flush",
+    "rega & Poda": "podapraga",
+    "Rega & LST":  "regalst",
   };
-  const ATIVIDADE_FALLBACK_PALETTE = [
-    { bg: "#FBEAE6", fg: "#B05A47", dot: "#E79683" },
-    { bg: "#F5EFD8", fg: "#8C7A2B", dot: "#D9C25E" },
-    { bg: "#E3EFF5", fg: "#3E6B8C", dot: "#7FB3D9" },
-    { bg: "#EEE3F5", fg: "#7B4C91", dot: "#C79CE0" },
-  ];
+  const ATIVIDADE_FALLBACK_PALETTE = ["alt-1", "alt-2", "alt-3", "alt-4"];
   function activityColor(name) {
-    if (ATIVIDADE_CORES[name]) return ATIVIDADE_CORES[name];
+    const slug = ATIVIDADE_CORES[name];
+    if (slug) {
+      return { bg: `var(--act-${slug}-bg)`, fg: `var(--act-${slug}-fg)`, dot: `var(--act-${slug}-dot)` };
+    }
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-    return ATIVIDADE_FALLBACK_PALETTE[hash % ATIVIDADE_FALLBACK_PALETTE.length];
+    const slugAlt = ATIVIDADE_FALLBACK_PALETTE[hash % ATIVIDADE_FALLBACK_PALETTE.length];
+    return { bg: `var(--act-${slugAlt}-bg)`, fg: `var(--act-${slugAlt}-fg)`, dot: `var(--act-${slugAlt}-dot)` };
   }
 
   // Categorias de nutrientes, na ordem correta de adição na água
@@ -82,7 +88,20 @@
     { nome: "Last Mile",      categoriaId: "final" },
   ];
 
-  const PLANT_PALETTE = ["#6FAE7C", "#D9A64E", "#5FA8BF", "#D98A63", "#9B84C9", "#D97FA8", "#8AB94F", "#C9A63A"];
+  // Cores como custom properties para que sigam o tema. O contexto SVG é
+  // um <svg> inline dentro do documento, então var() resolve normalmente
+  // nos dois casos.
+  const PLANT_PALETTE = ["var(--plant-0)", "var(--plant-1)", "var(--plant-2)", "var(--plant-3)", "var(--plant-4)", "var(--plant-5)", "var(--plant-6)", "var(--plant-7)"];
+  const SERIE_CORES = {
+    leaf: "var(--plant-0)",
+    temp: "var(--series-temp)",
+    umidade: "var(--series-umid)",
+    vpd: "var(--series-vpd)",
+    ppfd: "var(--series-ppfd)",
+    dli: "var(--series-dli)",
+    ph: "var(--series-ph)",
+    ec: "var(--series-ec)",
+  };
   function growAvatarColor(index) { return PLANT_PALETTE[index % PLANT_PALETTE.length]; }
   function growInitial(nome) {
     const trimmed = (nome || "").trim();
@@ -180,9 +199,6 @@
     editingPlantaId: null,
     editingProgramId: null,
     confirmAction: null,
-    cancelAction: null,
-    _confirmResolved: false,
-    _confirmWasOpen: false,
     nutrienteTarget: null, // { list, rerender } — para onde vai o próximo nutriente adicionado
     tendenciasFiltro: { inicio: null, fim: null }, // null/null = mostrar todo o histórico
   };
@@ -199,12 +215,11 @@
   }
 
   /* ---------------------------------------------------------
-     PERSISTÊNCIA
+     PERSISTÊNCIA LOCAL + SINCRONIZAÇÃO CLOUD
      --------------------------------------------------------- */
   function defaultState() {
     return {
       version: 2,
-      updatedAt: 0,
       nutrientCategories: NUTRIENT_CATEGORIES_PADRAO.map(c => ({ ...c })),
       nutrients: NUTRIENTES_PADRAO.map(n => ({ ...n })),
       activityCatalog: ATIVIDADES_PADRAO.slice(),
@@ -215,12 +230,10 @@
   }
 
   function migrate(parsed) {
-    if (typeof parsed.updatedAt !== "number") parsed.updatedAt = 0;
     if (!Array.isArray(parsed.nutrientCategories)) {
       parsed.nutrientCategories = NUTRIENT_CATEGORIES_PADRAO.map(c => ({ ...c }));
     }
     if (!Array.isArray(parsed.nutrients)) {
-      // migração de um formato antigo (lista simples de nomes)
       const nameToCat = {};
       NUTRIENTES_PADRAO.forEach(n => { nameToCat[n.nome] = n.categoriaId; });
       if (Array.isArray(parsed.nutrientCatalog)) {
@@ -256,6 +269,14 @@
     return parsed;
   }
 
+  function hasLocalUserData(value = state) {
+    return !!value && (
+      (Array.isArray(value.grows) && value.grows.length > 0) ||
+      (Array.isArray(value.nutritionPrograms) && value.nutritionPrograms.length > 0) ||
+      (Array.isArray(value.nutrients) && value.nutrients.length > NUTRIENTES_PADRAO.length)
+    );
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -266,18 +287,186 @@
           return;
         }
       }
-    } catch (e) { /* fall through to default */ }
+    } catch (e) {}
     state = defaultState();
   }
 
-  function save() {
-    state.updatedAt = Date.now();
+  function saveLocal() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       showToast("Não foi possível salvar (armazenamento indisponível).");
     }
-    schedulePush();
+  }
+
+  function scheduleCloudSave() {
+    if (!cloudUser || !window.DIARIO_SUPABASE) return;
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = setTimeout(() => saveToCloud(), SYNC_DEBOUNCE_MS);
+  }
+
+  async function saveToCloud() {
+    if (!cloudUser || !window.DIARIO_SUPABASE) return;
+    if (cloudSyncInProgress) {
+      cloudSyncPending = true;
+      return;
+    }
+    cloudSyncInProgress = true;
+    cloudSyncPending = false;
+    setSyncStatus("Salvando…");
+
+    try {
+      const { error } = await window.DIARIO_SUPABASE
+        .from("user_data")
+        .upsert({
+          user_id: cloudUser.id,
+          data: state,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "user_id" });
+
+      if (error) throw error;
+      setSyncStatus("Sincronizado");
+    } catch (e) {
+      console.error("Cloud sync error:", e);
+      setSyncStatus("Erro ao sincronizar");
+      showToast("Não foi possível sincronizar agora. Seus dados locais continuam salvos.");
+    } finally {
+      cloudSyncInProgress = false;
+      if (cloudSyncPending) saveToCloud();
+    }
+  }
+
+  async function loadFromCloud() {
+    if (!cloudUser || !window.DIARIO_SUPABASE) return false;
+    setSyncStatus("Sincronizando…");
+
+    try {
+      const { data, error } = await window.DIARIO_SUPABASE
+        .from("user_data")
+        .select("data, updated_at")
+        .eq("user_id", cloudUser.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (!data) {
+        await saveToCloud();
+        return true;
+      }
+
+      const remoteState = migrate(data.data || defaultState());
+
+      if (hasLocalUserData()) {
+        const useCloud = window.confirm(
+          "Encontramos dados salvos na sua conta Google.\n\n" +
+          "OK = usar os dados da nuvem neste dispositivo.\n" +
+          "Cancelar = manter os dados locais e enviá-los para a nuvem."
+        );
+
+        if (!useCloud) {
+          await saveToCloud();
+          return true;
+        }
+      }
+
+      state = remoteState;
+      saveLocal();
+      renderAll();
+      setSyncStatus("Sincronizado");
+      return true;
+    } catch (e) {
+      console.error("Cloud load error:", e);
+      setSyncStatus("Erro ao sincronizar");
+      showToast("Login realizado, mas não foi possível carregar os dados da nuvem.");
+      return false;
+    }
+  }
+
+  function save() {
+    saveLocal();
+    scheduleCloudSave();
+  }
+
+  function setSyncStatus(text) {
+    const el = document.getElementById("syncStatus");
+    if (el) el.textContent = text;
+  }
+
+  async function initCloudAuth() {
+    if (!window.DIARIO_SUPABASE) {
+      updateAuthUI(null);
+      return;
+    }
+
+    const { data: { session } } = await window.DIARIO_SUPABASE.auth.getSession();
+    cloudUser = session?.user || null;
+    updateAuthUI(cloudUser);
+
+    if (cloudUser) await loadFromCloud();
+
+    window.DIARIO_SUPABASE.auth.onAuthStateChange(async (_event, session) => {
+      const nextUser = session?.user || null;
+      const changedUser = nextUser?.id !== cloudUser?.id;
+      cloudUser = nextUser;
+      updateAuthUI(cloudUser);
+
+      if (changedUser && cloudUser) await loadFromCloud();
+    });
+  }
+
+  async function loginWithGoogle() {
+    if (!window.DIARIO_SUPABASE) {
+      showToast("Configure o Supabase em config.js primeiro.");
+      return;
+    }
+
+    const { error } = await window.DIARIO_SUPABASE.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+
+    if (error) {
+      console.error(error);
+      showToast("Não foi possível iniciar o login com Google.");
+    }
+  }
+
+  async function logoutGoogle() {
+    if (!window.DIARIO_SUPABASE) return;
+    await window.DIARIO_SUPABASE.auth.signOut();
+    cloudUser = null;
+    updateAuthUI(null);
+    setSyncStatus("Somente neste dispositivo");
+  }
+
+  function updateAuthUI(user) {
+    const loginBtn = document.getElementById("btnGoogleLogin");
+    const logoutBtn = document.getElementById("btnGoogleLogout");
+    const userBox = document.getElementById("googleUserBox");
+    const userName = document.getElementById("googleUserName");
+    const userAvatar = document.getElementById("googleUserAvatar");
+    const note = document.getElementById("syncStatus");
+
+    if (!loginBtn || !logoutBtn || !userBox) return;
+
+    if (user) {
+      loginBtn.style.display = "none";
+      logoutBtn.style.display = "";
+      userBox.style.display = "flex";
+      const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Usuário";
+      if (userName) userName.textContent = name;
+      if (userAvatar) {
+        const avatar = user.user_metadata?.avatar_url || user.user_metadata?.picture;
+        userAvatar.src = avatar || "";
+        userAvatar.style.display = avatar ? "block" : "none";
+      }
+      if (note) note.textContent = "Conta Google conectada";
+    } else {
+      loginBtn.style.display = "";
+      logoutBtn.style.display = "none";
+      userBox.style.display = "none";
+      if (note) note.textContent = "Somente neste dispositivo";
+    }
   }
 
   /* ---------------------------------------------------------
@@ -326,6 +515,12 @@
     const d1 = new Date(iso1 + "T00:00:00");
     const d2 = new Date(iso2 + "T00:00:00");
     return Math.round((d2 - d1) / 86400000);
+  }
+  // Dia do ciclo (1-based) ou null quando a data de início é ausente/inválida,
+  // para que uma data corrompida no storage não vire "dia NaN" na tela.
+  function currentGrowDay(grow) {
+    const d = daysBetween(grow.dataInicio, todayISO());
+    return Number.isFinite(d) ? d + 1 : null;
   }
   function formatDateBR(iso) {
     const [y, m, d] = iso.split("-");
@@ -431,33 +626,16 @@
   preventNativeSubmit("formNutriente", "btnSalvarNutriente");
   preventNativeSubmit("formRegistro", "btnSalvarRegistro");
 
-  function askConfirm(title, text, onConfirm, onCancel) {
+  function askConfirm(title, text, onConfirm) {
     document.getElementById("confirmTitle").textContent = title;
     document.getElementById("confirmText").textContent = text;
     ui.confirmAction = onConfirm;
-    ui.cancelAction = onCancel || null;
-    ui._confirmResolved = false;
-    ui._confirmWasOpen = true;
     openModal("modalConfirm");
   }
   document.getElementById("btnConfirmAction").addEventListener("click", () => {
-    ui._confirmResolved = true;
     if (typeof ui.confirmAction === "function") ui.confirmAction();
     closeModal("modalConfirm");
   });
-  // Observa o próprio modalConfirm fechar por QUALQUER via (botão Cancelar,
-  // X, clique no fundo, Esc) para poder disparar onCancel de forma
-  // confiável, sem duplicar essa lógica em cada caminho de fechamento.
-  (function watchConfirmModalClose() {
-    const el = document.getElementById("modalConfirm");
-    const observer = new MutationObserver(() => {
-      if (!el.classList.contains("open") && ui._confirmWasOpen) {
-        ui._confirmWasOpen = false;
-        if (!ui._confirmResolved && typeof ui.cancelAction === "function") ui.cancelAction();
-      }
-    });
-    observer.observe(el, { attributes: true, attributeFilter: ["class"] });
-  })();
 
   /* ===========================================================
      RENDER: SIDEBAR
@@ -519,6 +697,7 @@
     openPlantaModal(null);
   });
   document.getElementById("btnAbrirProgramas").addEventListener("click", () => openProgramasModal());
+  document.getElementById("btnTema").addEventListener("click", toggleTema);
   document.getElementById("btnVisaoGeral").addEventListener("click", () => {
     ui.activeTab = "visaoGeral";
     renderAll();
@@ -535,7 +714,6 @@
   function renderMain() {
     const main = document.getElementById("mainContent");
     const grow = getSelectedGrow();
-    document.getElementById("btnFabNovoRegistro").classList.toggle("fab-hidden", !grow);
 
     if (!grow) {
       main.innerHTML = `
@@ -550,7 +728,7 @@
 
     const entries = sortedEntries(grow);
     const latest = entries[0] || null;
-    const day = daysBetween(grow.dataInicio, todayISO()) + 1;
+    const day = currentGrowDay(grow);
     const program = grow.programaId ? getProgram(grow.programaId) : null;
 
     main.innerHTML = `
@@ -641,15 +819,15 @@
     const vpdSt = vpdStatus(latest.vpd, latest.estagio);
     const phSt = phStatus(latest.phEntrada, grow.tipo);
     return `<div class="hero-strip">
-      ${heroCell("Estágio", escapeHtml(latest.estagio), "", "#6FAE7C", false)}
-      ${heroCell("Temperatura", fmtNum(latest.temperatura, 1), "°C", "#D98A63", latest.temperatura === "" || latest.temperatura == null)}
-      ${heroCell("Umidade", fmtNum(latest.umidade, 0), "%", "#5FA8BF", latest.umidade === "" || latest.umidade == null)}
-      ${heroCell("VPD", fmtNum(latest.vpd, 2), "kPa", "#9B84C9", latest.vpd === "" || latest.vpd == null, vpdSt)}
-      ${heroCell("PPFD", fmtNum(latest.ppfd, 0), "µmol", "#D9A64E", latest.ppfd === "" || latest.ppfd == null)}
-      ${heroCell("DLI", fmtNum(latest.dli, 1), "mol/d", "#D97FA8", latest.dli === "" || latest.dli == null)}
-      ${heroCell("pH entrada", fmtNum(latest.phEntrada, 2), "", "#8AB94F", latest.phEntrada === "" || latest.phEntrada == null, phSt)}
-      ${heroCell("PPM entrada", fmtNum(latest.ppmEntrada, 0), "ppm", "#6FAE7C", latest.ppmEntrada === "" || latest.ppmEntrada == null)}
-      ${heroCell("EC entrada", fmtNum(latest.ecEntrada, 2), "mS/cm", "#4F8C5E", latest.ecEntrada === "" || latest.ecEntrada == null)}
+      ${heroCell("Estágio", escapeHtml(latest.estagio), "", SERIE_CORES.leaf, false)}
+      ${heroCell("Temperatura", fmtNum(latest.temperatura, 1), "°C", SERIE_CORES.temp, latest.temperatura === "" || latest.temperatura == null)}
+      ${heroCell("Umidade", fmtNum(latest.umidade, 0), "%", SERIE_CORES.umidade, latest.umidade === "" || latest.umidade == null)}
+      ${heroCell("VPD", fmtNum(latest.vpd, 2), "kPa", SERIE_CORES.vpd, latest.vpd === "" || latest.vpd == null, vpdSt)}
+      ${heroCell("PPFD", fmtNum(latest.ppfd, 0), "µmol", SERIE_CORES.ppfd, latest.ppfd === "" || latest.ppfd == null)}
+      ${heroCell("DLI", fmtNum(latest.dli, 1), "mol/d", SERIE_CORES.dli, latest.dli === "" || latest.dli == null)}
+      ${heroCell("pH entrada", fmtNum(latest.phEntrada, 2), "", SERIE_CORES.ph, latest.phEntrada === "" || latest.phEntrada == null, phSt)}
+      ${heroCell("PPM entrada", fmtNum(latest.ppmEntrada, 0), "ppm", SERIE_CORES.leaf, latest.ppmEntrada === "" || latest.ppmEntrada == null)}
+      ${heroCell("EC entrada", fmtNum(latest.ecEntrada, 2), "mS/cm", SERIE_CORES.ec, latest.ecEntrada === "" || latest.ecEntrada == null)}
     </div>`;
   }
 
@@ -702,17 +880,18 @@
 
     const chrono = entries.slice().sort((a, b) => a.data.localeCompare(b.data));
     const latest = chrono[chrono.length - 1] || null;
-    const day = daysBetween(grow.dataInicio, todayISO()) + 1;
+    const day = currentGrowDay(grow);
     const program = grow.programaId ? getProgram(grow.programaId) : null;
 
     let harvestBlock = "";
     if (grow.finalizado) {
       const lastDate = latest ? latest.data : grow.dataInicio;
       const totalDias = daysBetween(grow.dataInicio, lastDate) + 1;
+      const totalDiasTxt = Number.isFinite(totalDias) ? totalDias : "—";
       harvestBlock = `
         <div class="harvest-estimate">
           <div class="he-label">Cultivo finalizado</div>
-          <div class="he-value">${totalDias} dias de ciclo</div>
+          <div class="he-value">${totalDiasTxt} dias de ciclo</div>
           <div class="he-basis">De ${formatDateBR(grow.dataInicio)} a ${formatDateBR(lastDate)}.</div>
         </div>`;
     } else {
@@ -758,8 +937,8 @@
           <div class="chart-card-head">
             <h3>Temperatura &amp; Umidade — últimos 7 dias registrados</h3>
             <div class="chart-legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:#D98A63"></span>Temp. (°C)</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:#5FA8BF"></span>Umidade (%)</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-temp)"></span>Temp. (°C)</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-umid)"></span>Umidade (%)</span>
             </div>
           </div>
           <div id="chartOverview7d"></div>
@@ -769,8 +948,8 @@
 
     if (last7.length >= 2) {
       drawLineChart("chartOverview7d", last7.map(e => e.data), [
-        { color: "#D98A63", values: last7.map(e => e.temperatura), axis: "left", label: "Temp.", unit: "°C", decimals: 1 },
-        { color: "#5FA8BF", values: last7.map(e => e.umidade), axis: "right", label: "Umidade", unit: "%", decimals: 0 }
+        { color: SERIE_CORES.temp, values: last7.map(e => e.temperatura), axis: "left", label: "Temp.", unit: "°C", decimals: 1 },
+        { color: SERIE_CORES.umidade, values: last7.map(e => e.umidade), axis: "right", label: "Umidade", unit: "%", decimals: 0 }
       ], { wide: true });
     } else {
       document.getElementById("chartOverview7d").innerHTML = `<div class="chart-empty">Adicione ao menos 2 registros para montar o gráfico.</div>`;
@@ -884,7 +1063,6 @@
     }).join("");
 
     const vpdSt = vpdStatus(entry.vpd, entry.estagio);
-    const phEntradaSt = phStatus(entry.phEntrada, grow.tipo);
 
     return `
       <tr class="detail-row"><td colspan="9">
@@ -894,16 +1072,12 @@
             <div class="nutrient-tags" style="margin-bottom:16px;">${nutrientsFull}</div>
             <h4>Ambiente registrado</h4>
             <div class="kv-grid">
-              <div class="kv"><span class="kv-label">Estágio</span><span class="kv-value">${escapeHtml(entry.estagio)}</span></div>
-              <div class="kv"><span class="kv-label">Litros</span><span class="kv-value">${fmtNum(entry.litros,1)} L</span></div>
-              <div class="kv"><span class="kv-label">pH entrada</span><span class="kv-value ${rangeTextClass(phEntradaSt)}">${fmtNum(entry.phEntrada,2)}</span></div>
-              <div class="kv"><span class="kv-label">PPM entrada</span><span class="kv-value">${fmtNum(entry.ppmEntrada,0)} ppm</span></div>
-              <div class="kv"><span class="kv-label">EC entrada</span><span class="kv-value">${fmtNum(entry.ecEntrada,2)} mS/cm</span></div>
               <div class="kv"><span class="kv-label">Temperatura</span><span class="kv-value">${fmtNum(entry.temperatura,1)} °C</span></div>
               <div class="kv"><span class="kv-label">Umidade</span><span class="kv-value">${fmtNum(entry.umidade,0)} %</span></div>
               <div class="kv"><span class="kv-label">VPD</span><span class="kv-value ${rangeTextClass(vpdSt)}">${fmtNum(entry.vpd,2)} kPa</span></div>
               <div class="kv"><span class="kv-label">PPFD</span><span class="kv-value">${fmtNum(entry.ppfd,0)} µmol</span></div>
               <div class="kv"><span class="kv-label">DLI</span><span class="kv-value">${fmtNum(entry.dli,1)} mol/d</span></div>
+              <div class="kv"><span class="kv-label">Litros</span><span class="kv-value">${fmtNum(entry.litros,1)} L</span></div>
             </div>
           </div>
           <div class="detail-block">
@@ -1066,8 +1240,8 @@
           <div class="chart-card-head">
             <h3>Temperatura &amp; Umidade</h3>
             <div class="chart-legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:#D98A63"></span>Temp. (°C)</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:#5FA8BF"></span>Umidade (%)</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-temp)"></span>Temp. (°C)</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-umid)"></span>Umidade (%)</span>
             </div>
           </div>
           <div id="chartTempUmid"></div>
@@ -1075,7 +1249,7 @@
         <div class="chart-card">
           <div class="chart-card-head">
             <h3>VPD</h3>
-            <div class="chart-legend"><span class="legend-item"><span class="legend-swatch" style="background:#9B84C9"></span>kPa</span></div>
+            <div class="chart-legend"><span class="legend-item"><span class="legend-swatch" style="background:var(--series-vpd)"></span>kPa</span></div>
           </div>
           <div id="chartVpd"></div>
         </div>
@@ -1083,8 +1257,8 @@
           <div class="chart-card-head">
             <h3>PPFD &amp; DLI</h3>
             <div class="chart-legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:#D9A64E"></span>PPFD</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:#D97FA8"></span>DLI</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-ppfd)"></span>PPFD</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-dli)"></span>DLI</span>
             </div>
           </div>
           <div id="chartLight"></div>
@@ -1093,8 +1267,8 @@
           <div class="chart-card-head">
             <h3>Solução de entrada</h3>
             <div class="chart-legend">
-              <span class="legend-item"><span class="legend-swatch" style="background:#8AB94F"></span>pH</span>
-              <span class="legend-item"><span class="legend-swatch" style="background:#4F8C5E"></span>EC (mS/cm)</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-ph)"></span>pH</span>
+              <span class="legend-item"><span class="legend-swatch" style="background:var(--series-ec)"></span>EC (mS/cm)</span>
             </div>
           </div>
           <div id="chartEntrada"></div>
@@ -1119,19 +1293,19 @@
     const dates = chrono.map(e => e.data);
 
     drawLineChart("chartTempUmid", dates, [
-      { color: "#D98A63", values: chrono.map(e => e.temperatura), axis: "left", label: "Temp.", unit: "°C", decimals: 1 },
-      { color: "#5FA8BF", values: chrono.map(e => e.umidade), axis: "right", label: "Umidade", unit: "%", decimals: 0 }
+      { color: SERIE_CORES.temp, values: chrono.map(e => e.temperatura), axis: "left", label: "Temp.", unit: "°C", decimals: 1 },
+      { color: SERIE_CORES.umidade, values: chrono.map(e => e.umidade), axis: "right", label: "Umidade", unit: "%", decimals: 0 }
     ]);
     drawLineChart("chartVpd", dates, [
-      { color: "#9B84C9", values: chrono.map(e => e.vpd), axis: "left", label: "VPD", unit: " kPa", decimals: 2 }
+      { color: SERIE_CORES.vpd, values: chrono.map(e => e.vpd), axis: "left", label: "VPD", unit: " kPa", decimals: 2 }
     ]);
     drawLineChart("chartLight", dates, [
-      { color: "#D9A64E", values: chrono.map(e => e.ppfd), axis: "left", label: "PPFD", unit: " µmol", decimals: 0 },
-      { color: "#D97FA8", values: chrono.map(e => e.dli), axis: "right", label: "DLI", unit: " mol/d", decimals: 1 }
+      { color: SERIE_CORES.ppfd, values: chrono.map(e => e.ppfd), axis: "left", label: "PPFD", unit: " µmol", decimals: 0 },
+      { color: SERIE_CORES.dli, values: chrono.map(e => e.dli), axis: "right", label: "DLI", unit: " mol/d", decimals: 1 }
     ]);
     drawLineChart("chartEntrada", dates, [
-      { color: "#8AB94F", values: chrono.map(e => e.phEntrada), axis: "left", label: "pH", unit: "", decimals: 2 },
-      { color: "#4F8C5E", values: chrono.map(e => e.ecEntrada), axis: "right", label: "EC", unit: " mS/cm", decimals: 2 }
+      { color: SERIE_CORES.ph, values: chrono.map(e => e.phEntrada), axis: "left", label: "pH", unit: "", decimals: 2 },
+      { color: SERIE_CORES.ec, values: chrono.map(e => e.ecEntrada), axis: "right", label: "EC", unit: " mS/cm", decimals: 2 }
     ]);
 
     const legendEc = document.getElementById("legendPlantsEc");
@@ -1213,7 +1387,7 @@
     let gridLines = "";
     for (let g = 0; g <= 3; g++) {
       const y = padT + (plotH * g) / 3;
-      gridLines += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#DEE8D8" stroke-width="1"/>`;
+      gridLines += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" style="stroke:var(--border-soft)" stroke-width="1"/>`;
     }
 
     const labelIdxs = n <= 2 ? [0, n - 1] : [0, Math.floor((n - 1) / 2), n - 1];
@@ -1221,26 +1395,26 @@
     labelIdxs.forEach(i => {
       const x = xFor(i);
       const anchor = i === 0 ? "start" : (i === n - 1 ? "end" : "middle");
-      xLabels += `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="10" fill="#5F7057" text-anchor="${anchor}" font-family="IBM Plex Sans, sans-serif">${formatDateShort(dates[i])}</text>`;
+      xLabels += `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="10" style="fill:var(--text-faint)" text-anchor="${anchor}" font-family="IBM Plex Sans, sans-serif">${formatDateShort(dates[i])}</text>`;
     });
 
     let paths = "";
     series.forEach(s => {
       const range = s.axis === "right" ? rightRange : leftRange;
       const d = pathFor(s.values, range);
-      if (d) paths += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`;
+      if (d) paths += `<path d="${d}" fill="none" style="stroke:${s.color}" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>`;
       s.values.forEach((v, i) => {
         const y = yFor(v, range);
         if (y === null) return;
-        paths += `<circle cx="${xFor(i).toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" fill="${s.color}"/>`;
+        paths += `<circle cx="${xFor(i).toFixed(1)}" cy="${y.toFixed(1)}" r="2.8" style="fill:${s.color}"/>`;
       });
     });
 
     // Camada de interação: linha-guia vertical + um pontinho por série,
     // ambos escondidos até o mouse passar por cima do gráfico.
-    const hoverLine = `<line class="chart-hover-line" x1="0" y1="${padT}" x2="0" y2="${H - padB}" stroke="#B7C7B0" stroke-width="1" stroke-dasharray="3,3" style="display:none;"/>`;
+    const hoverLine = `<line class="chart-hover-line" x1="0" y1="${padT}" x2="0" y2="${H - padB}" style="stroke:var(--chart-hover-line);display:none;" stroke-width="1" stroke-dasharray="3,3"/>`;
     const hoverDots = series.map(s =>
-      `<circle class="chart-hover-dot" r="4" fill="${s.color}" stroke="#fff" stroke-width="1.5" style="display:none;"/>`
+      `<circle class="chart-hover-dot" r="4" style="fill:${s.color};stroke:var(--bg-raised);display:none;" stroke-width="1.5"/>`
     ).join("");
     // Uma faixa invisível cobrindo toda a área do gráfico, para capturar o
     // mouse em qualquer ponto (inclusive longe das próprias linhas).
@@ -2193,8 +2367,8 @@
   }
 
   function suggestedWeekNumber(grow, program) {
-    const day = daysBetween(grow.dataInicio, todayISO()) + 1;
-    const suggested = Math.max(1, Math.ceil(day / 7));
+    const day = currentGrowDay(grow);
+    const suggested = day === null ? 1 : Math.max(1, Math.ceil(day / 7));
     const nums = allWeekNumbers(program);
     if (!nums.length) return null;
     if (suggested <= nums[0]) return nums[0];
@@ -2252,7 +2426,6 @@
     const estagio = document.getElementById("fEstagio").value;
     const lr = (LIGHT_RANGES[grow.tipo] || {})[estagio];
     if (lr) document.getElementById("calcFotoperiodo").value = lr.horas;
-    recomputeDliField();
   }
 
   function refreshFormRangeIndicators(grow) {
@@ -2321,10 +2494,10 @@
     document.getElementById("fTemp").value = entry ? entry.temperatura ?? "" : "";
     document.getElementById("fUmidade").value = entry ? entry.umidade ?? "" : "";
     document.getElementById("fPpfd").value = entry ? entry.ppfd ?? "" : "";
+    document.getElementById("fDli").value = entry ? entry.dli ?? "" : "";
     document.getElementById("fObservacoes").value = entry ? entry.observacoes ?? "" : "";
     recomputeVpdField();
-    applyLightDefaultsForStage(grow);
-    recomputeDliField();
+    if (!isEdit) applyLightDefaultsForStage(grow);
 
     renderSaidaTable(grow, entry);
     refreshFormRangeIndicators(grow);
@@ -2346,16 +2519,6 @@
       vpdField.value = "";
     }
   }
-  function recomputeDliField() {
-    const ppfd = parseFloat(document.getElementById("fPpfd").value);
-    const hours = parseFloat(document.getElementById("calcFotoperiodo").value);
-    const dliField = document.getElementById("fDli");
-    if (!isNaN(ppfd) && !isNaN(hours)) {
-      dliField.value = calcDLI(ppfd, hours);
-    } else {
-      dliField.value = "";
-    }
-  }
   document.getElementById("fTemp").addEventListener("input", () => {
     recomputeVpdField();
     const grow = getSelectedGrow();
@@ -2370,13 +2533,18 @@
     const grow = getSelectedGrow();
     if (grow) refreshFormRangeIndicators(grow);
   });
-  document.getElementById("fPpfd").addEventListener("input", recomputeDliField);
-  document.getElementById("calcFotoperiodo").addEventListener("input", recomputeDliField);
   document.getElementById("fEstagio").addEventListener("change", () => {
     const grow = getSelectedGrow();
     if (!grow) return;
     applyLightDefaultsForStage(grow);
     refreshFormRangeIndicators(grow);
+  });
+
+  document.getElementById("btnCalcDli").addEventListener("click", () => {
+    const ppfd = parseFloat(document.getElementById("fPpfd").value);
+    const hours = parseFloat(document.getElementById("calcFotoperiodo").value);
+    if (isNaN(ppfd) || isNaN(hours)) { showToast("Informe o PPFD e o fotoperíodo."); return; }
+    document.getElementById("fDli").value = calcDLI(ppfd, hours);
   });
 
   function numOrNull(v) {
@@ -2455,226 +2623,6 @@
   function escapeAttr(str) { return escapeHtml(str); }
 
   /* ---------------------------------------------------------
-     SINCRONIZAÇÃO COM CONTA GOOGLE (via Supabase)
-     ---------------------------------------------------------
-     A chave abaixo é a chave pública ("publishable"/anon) do Supabase —
-     ela é feita para ser exposta no cliente (o acesso real é controlado
-     por Row Level Security no banco). O Client ID/Secret do Google NUNCA
-     entram aqui: eles ficam configurados no painel do Supabase
-     (Authentication → Providers → Google), que faz a troca de tokens do
-     lado do servidor. Veja SYNC-SETUP.md para o passo a passo completo.
-     --------------------------------------------------------- */
-  const SUPABASE_URL = "https://klaktdvanzuooddxlvsb.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_A3vUvh_h5dPFS8MC_OdPrg_UMc5f66u";
-  const SYNC_TABLE = "growbro_data";
-
-  const supa = (window.supabase && window.supabase.createClient)
-    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-    : null;
-
-  let authSession = null;
-  let syncStatus = "idle"; // idle | syncing | synced | error
-  let pushTimer = null;
-
-  // O redirecionamento de volta do Google pode já trazer a sessão pronta
-  // (via #access_token na URL) muito antes do DOMContentLoaded — e antes
-  // do nosso próprio estado (load()) existir. Por isso o listener é
-  // registrado JÁ AQUI, no carregamento do script, para nunca perder esse
-  // evento; mas o processamento de verdade (sincronizar, mexer no DOM)
-  // só acontece depois que appReady vira true, dentro de init().
-  let appReady = false;
-  let pendingSignInEvent = false;
-  if (supa) {
-    supa.auth.onAuthStateChange((event, session) => {
-      authSession = session;
-      if (!appReady) {
-        if (event === "SIGNED_IN") pendingSignInEvent = true;
-        return;
-      }
-      renderAccountBlock();
-      if (event === "SIGNED_IN") {
-        cleanupOAuthUrlFragments();
-        handlePostLoginSync();
-      }
-    });
-  }
-
-  function setSyncStatus(status) {
-    syncStatus = status;
-    renderAccountBlock();
-  }
-
-  function renderAccountBlock() {
-    const el = document.getElementById("accountBlock");
-    const note = document.getElementById("sidebarFootNote");
-    if (!el || !note) return;
-
-    if (!supa) {
-      el.innerHTML = "";
-      note.textContent = "Dados salvos localmente no seu navegador.";
-      return;
-    }
-    if (!authSession) {
-      el.innerHTML = `<button class="btn-ghost-row account-login-btn" id="btnGoogleLogin" title="Entrar com Google"><span class="bgr-icon">🔐</span><span class="bgr-label">Entrar com Google</span></button>`;
-      document.getElementById("btnGoogleLogin").addEventListener("click", loginWithGoogle);
-      note.textContent = "Dados salvos localmente no seu navegador.";
-      return;
-    }
-
-    const user = authSession.user;
-    const email = user.email || "conta Google";
-    const avatarUrl = user.user_metadata && user.user_metadata.avatar_url;
-    const initial = (email[0] || "?").toUpperCase();
-    const statusLabel = { syncing: "Sincronizando…", error: "Erro ao sincronizar" }[syncStatus] || "Sincronizado";
-    const statusClass = syncStatus === "syncing" ? "syncing" : (syncStatus === "error" ? "error" : "");
-    el.innerHTML = `
-      <div class="account-card">
-        ${avatarUrl
-          ? `<img class="account-avatar" src="${escapeAttr(avatarUrl)}" referrerpolicy="no-referrer" alt="">`
-          : `<span class="account-avatar-fallback">${escapeHtml(initial)}</span>`}
-        <div class="account-info">
-          <span class="account-email">${escapeHtml(email)}</span>
-          <span class="account-sync-status ${statusClass}" title="${syncStatus === "error" ? escapeAttr(lastSyncError) : ""}"><span class="dot"></span>${statusLabel}</span>
-        </div>
-        <button class="icon-btn" id="btnLogout" title="Sair">⎋</button>
-      </div>`;
-    document.getElementById("btnLogout").addEventListener("click", logoutFromGoogle);
-    note.textContent = "Sincronizado com sua conta Google.";
-  }
-
-  async function loginWithGoogle() {
-    if (!supa) return;
-    const redirectTo = window.location.origin + window.location.pathname;
-    const { error } = await supa.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
-    if (error) showToast("Não foi possível iniciar o login: " + error.message);
-  }
-
-  async function logoutFromGoogle() {
-    if (!supa) return;
-    await supa.auth.signOut();
-    showToast("Você saiu da conta. Os dados continuam salvos neste navegador.");
-  }
-
-  function schedulePush() {
-    if (!supa || !authSession) return;
-    clearTimeout(pushTimer);
-    setSyncStatus("syncing");
-    pushTimer = setTimeout(pushToCloud, 1200);
-  }
-
-  let lastSyncError = "";
-
-  async function pushToCloud() {
-    if (!supa || !authSession) return;
-    try {
-      const payload = { user_id: authSession.user.id, data: state, updated_at: new Date().toISOString() };
-      const { error } = await supa.from(SYNC_TABLE).upsert(payload, { onConflict: "user_id" });
-      if (error) throw error;
-      setSyncStatus("idle");
-    } catch (e) {
-      lastSyncError = (e && e.message) || String(e);
-      console.error("GrowBro: falha ao enviar dados para a nuvem.", e);
-      setSyncStatus("error");
-    }
-  }
-
-  function adoptRemoteState(remoteState) {
-    state = migrate(remoteState);
-    if (!state.selectedGrowId && state.grows.length) state.selectedGrowId = state.grows[0].id;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
-    renderAll();
-  }
-
-  // Compara dois estados ignorando o timestamp — só pra saber se já estão
-  // de fato em sincronia (evita perguntar à toa quando nada mudou).
-  function statesLookEquivalent(a, b) {
-    const strip = (s) => { const c = { ...s }; delete c.updatedAt; return JSON.stringify(c); };
-    try { return strip(a) === strip(b); } catch (e) { return false; }
-  }
-
-  // Ao entrar, decide o que fazer com o que já existe na nuvem para essa
-  // conta: se só um lado tem dados, usa esse lado sem perguntar; se os
-  // dois têm dados diferentes, SEMPRE pergunta — mesmo que um pareça mais
-  // recente — porque "mais recente neste aparelho" não quer dizer "já viu
-  // as mudanças do outro aparelho". Isso é "o último lado escolhido vence"
-  // no nível do cultivo inteiro, não uma mesclagem campo a campo.
-  async function handlePostLoginSync() {
-    if (!supa || !authSession) return;
-    setSyncStatus("syncing");
-    try {
-      const { data, error } = await supa
-        .from(SYNC_TABLE)
-        .select("data, updated_at")
-        .eq("user_id", authSession.user.id)
-        .maybeSingle();
-      if (error) throw error;
-
-      const localHasContent = state.grows.length > 0;
-      const remoteState = data && data.data;
-      const remoteHasContent = remoteState && Array.isArray(remoteState.grows) && remoteState.grows.length > 0;
-
-      if (remoteHasContent && !localHasContent) {
-        // Nada a perder localmente — adota a nuvem. Ela já está correta,
-        // não precisa reenviar nada.
-        adoptRemoteState(remoteState);
-        setSyncStatus("idle");
-        return;
-      }
-
-      if (remoteHasContent && localHasContent && !statesLookEquivalent(state, remoteState)) {
-        const remoteUpdated = data.updated_at ? new Date(data.updated_at).getTime() : 0;
-        const remoteIsNewer = remoteUpdated > (state.updatedAt || 0);
-        setSyncStatus("idle");
-        // Importante: NÃO agenda envio nenhum aqui. Enviar antes do
-        // usuário decidir arriscaria sobrescrever a nuvem com o estado
-        // deste aparelho antes mesmo dele escolher usar a nuvem.
-        askConfirm(
-          "Dados encontrados na nuvem",
-          `Esta conta já tem dados salvos na nuvem${remoteIsNewer ? " e parecem mais recentes que os deste dispositivo" : ""}. Usar os dados da nuvem? Isso substitui os dados deste dispositivo.`,
-          () => adoptRemoteState(remoteState), // "Confirmar" = usar a nuvem
-          () => schedulePush() // "Cancelar" = manter este aparelho e enviá-lo
-        );
-        return;
-      }
-
-      // Nuvem vazia, ou já idêntica ao que está aqui: seguro sincronizar.
-      setSyncStatus("idle");
-      schedulePush();
-    } catch (e) {
-      lastSyncError = (e && e.message) || String(e);
-      console.error("GrowBro: falha ao consultar os dados na nuvem.", e);
-      showToast("Não foi possível consultar seus dados na nuvem. Veja o console para detalhes.");
-      setSyncStatus("error");
-    }
-  }
-
-  function cleanupOAuthUrlFragments() {
-    if (window.location.hash && /access_token|refresh_token/.test(window.location.hash)) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-  }
-
-  function setupAuthListener() {
-    appReady = true;
-    if (!supa) { renderAccountBlock(); return; }
-    renderAccountBlock();
-    if (pendingSignInEvent) {
-      pendingSignInEvent = false;
-      cleanupOAuthUrlFragments();
-      handlePostLoginSync();
-    }
-    // Reforço: se por algum motivo o evento não disparou (ex: sessão já
-    // existia de uma visita anterior, sem redirecionamento agora), isso
-    // garante que authSession fique correto mesmo assim.
-    supa.auth.getSession().then(({ data }) => {
-      if (!authSession && data.session) {
-        authSession = data.session;
-        renderAccountBlock();
-      }
-    });
-  }
-
-  /* ---------------------------------------------------------
      BARRA LATERAL — recolher/expandir
      --------------------------------------------------------- */
   const SIDEBAR_COLLAPSE_KEY = "diario-cultivo:sidebar-collapsed";
@@ -2692,35 +2640,42 @@
   });
 
   /* ---------------------------------------------------------
-     BARRA LATERAL NO MOBILE — abre como gaveta por cima do conteúdo
+     TEMA CLARO/ESCURO
+     O atributo data-theme já foi aplicado no <head> por um script
+     inline (antes da primeira pintura); aqui só sincronizamos os
+     controles e persistimos a escolha.
      --------------------------------------------------------- */
-  function isMobileViewport() {
-    if (typeof window.matchMedia !== "function") return window.innerWidth <= 780;
-    return window.matchMedia("(max-width: 780px)").matches;
+  const THEME_KEY = "diario-cultivo:theme";
+  function temaAtual() {
+    return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   }
-  function openMobileSidebar() {
-    document.getElementById("sidebar").classList.add("mobile-open");
-    document.getElementById("sidebarBackdrop").classList.add("show");
-  }
-  function closeMobileSidebar() {
-    document.getElementById("sidebar").classList.remove("mobile-open");
-    document.getElementById("sidebarBackdrop").classList.remove("show");
-  }
-  document.getElementById("btnOpenMobileSidebar").addEventListener("click", openMobileSidebar);
-  document.getElementById("sidebarBackdrop").addEventListener("click", closeMobileSidebar);
-  // Qualquer clique num item de navegação dentro da barra (trocar de
-  // cultivo, abrir um modal, etc.) fecha a gaveta — sem isso ela ficaria
-  // aberta por cima do modal recém-aberto.
-  document.getElementById("sidebar").addEventListener("click", (e) => {
-    if (e.target.closest("button, .grow-item, .plant-chip-row")) closeMobileSidebar();
-  });
+  function aplicarTema(tema) {
+    if (tema === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    try { localStorage.setItem(THEME_KEY, tema); } catch (e) { /* ignore */ }
 
-  document.getElementById("btnFabNovoRegistro").addEventListener("click", () => openRegistroModal(null));
+    const icon = document.getElementById("btnTemaIcon");
+    const label = document.getElementById("btnTemaLabel");
+    const btn = document.getElementById("btnTema");
+    if (icon) icon.textContent = tema === "dark" ? "☀️" : "🌙";
+    if (label) label.textContent = tema === "dark" ? "Tema claro" : "Tema escuro";
+    if (btn) btn.setAttribute("aria-pressed", String(tema === "dark"));
+  }
+  function toggleTema() {
+    aplicarTema(temaAtual() === "dark" ? "light" : "dark");
+  }
+  aplicarTema(temaAtual());
+
+  /* ---------------------------------------------------------
+     CONTA / GOOGLE
+     --------------------------------------------------------- */
+  document.getElementById("btnGoogleLogin")?.addEventListener("click", loginWithGoogle);
+  document.getElementById("btnGoogleLogout")?.addEventListener("click", logoutGoogle);
 
   /* ---------------------------------------------------------
      INIT
      --------------------------------------------------------- */
-  function init() {
+  async function init() {
     load();
     if (!state.selectedGrowId && state.grows.length) {
       state.selectedGrowId = state.grows[0].id;
@@ -2728,11 +2683,8 @@
     let startCollapsed = false;
     try { startCollapsed = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1"; } catch (e) { /* ignore */ }
     setSidebarCollapsed(startCollapsed);
-    // O modo "recolhido só com ícones" é um recurso de desktop; no mobile
-    // a barra é uma gaveta que, quando aberta, sempre mostra tudo.
-    if (isMobileViewport()) document.getElementById("sidebar").classList.remove("collapsed");
     renderAll();
-    setupAuthListener();
+    await initCloudAuth();
   }
 
   document.addEventListener("DOMContentLoaded", init);

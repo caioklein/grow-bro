@@ -3,12 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GrowBro</title>
+<title>Diário de Cultivo</title>
+<script>
+/* Aplica o tema antes da primeira pintura para evitar flash da página clara.
+   Sem escolha salva, o app SEMPRE abre no tema claro: o escuro só entra por
+   meio do botão da barra lateral, nunca por preferência do sistema. */
+(function(){
+  try {
+    if (localStorage.getItem("diario-cultivo:theme") === "dark") {
+      document.documentElement.setAttribute("data-theme", "dark");
+    }
+  } catch (e) { /* localStorage bloqueado: segue com o tema claro */ }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
 /* ============================================================
    DESIGN TOKENS — tema claro, pastel
@@ -50,6 +61,126 @@
   --radius-lg: 16px;
 
   --shadow-pop: 0 18px 40px rgba(80,95,75,0.16);
+
+  /* Cores de apoio que antes eram fixas no CSS */
+  --on-accent:     #FFFFFF;
+  --tint-amber:    #FBF2E1;
+  --tint-water:    #EAF4F7;
+  --tint-water-hi: #DDEDF2;
+  --range-warning-text: #8C6D1F;
+  --range-warning-bg:   #FBF2DC;
+  --range-warning-dot:  #C99A28;
+  --leaf-glow:     rgba(143,199,154,0.14);
+  --amber-glow:    rgba(232,190,115,0.10);
+  --leaf-border:   rgba(111,174,124,0.30);
+  --leaf-border-soft: rgba(111,174,124,0.22);
+  --leaf-border-faint: rgba(111,174,124,0.25);
+  --alert-border:  rgba(217,123,104,0.30);
+  --amber-border:  rgba(217,166,78,0.35);
+  --amber-border-soft: rgba(168,121,31,0.25);
+  --water-border:  rgba(95,168,191,0.35);
+  --overlay:       rgba(60,70,55,0.28);
+  --selection:     rgba(111,174,124,0.30);
+  --brand-leaf:    #8FC79A;
+  --brand-leaf-2:  #6FAE7C;
+  --brand-stem:    #B7D6BC;
+  --chart-hover-line: #B7C7B0;
+  --shadow-control: rgba(60,75,55,0.12);
+
+  /* Pastéis das atividades (pílula, texto e ponto) */
+  --act-daily-bg:#DCEAF5;   --act-daily-fg:#3E6E91;   --act-daily-dot:#6FB3D9;
+  --act-rega-bg:#E1F0E3;    --act-rega-fg:#3E7A4C;    --act-rega-dot:#7BC47F;
+  --act-flush-bg:#DEF3F1;   --act-flush-fg:#2E7D75;   --act-flush-dot:#5FC2B6;
+  --act-podapraga-bg:#F5E9D8; --act-podapraga-fg:#8C5A2B; --act-podapraga-dot:#E2A25E;
+  --act-regalst-bg:#EDE3F5; --act-regalst-fg:#6B4C91; --act-regalst-dot:#B79CE0;
+  --act-alt-1-bg:#FBEAE6;   --act-alt-1-fg:#B05A47;   --act-alt-1-dot:#E79683;
+  --act-alt-2-bg:#F5EFD8;   --act-alt-2-fg:#8C7A2B;   --act-alt-2-dot:#D9C25E;
+  --act-alt-3-bg:#E3EFF5;   --act-alt-3-fg:#3E6B8C;   --act-alt-3-dot:#7FB3D9;
+  --act-alt-4-bg:#EEE3F5;   --act-alt-4-fg:#7B4C91;   --act-alt-4-dot:#C79CE0;
+
+  /* Séries dos gráficos e avatares de planta */
+  --series-temp:#D98A63; --series-umid:#5FA8BF; --series-vpd:#9B84C9;
+  --series-ppfd:#D9A64E; --series-dli:#D97FA8; --series-ph:#8AB94F;
+  --series-ec:#4F8C5E;
+  --plant-0:#6FAE7C; --plant-1:#D9A64E; --plant-2:#5FA8BF; --plant-3:#D98A63;
+  --plant-4:#9B84C9; --plant-5:#D97FA8; --plant-6:#8AB94F; --plant-7:#C9A63A;
+}
+
+/* ============================================================
+   DESIGN TOKENS — tema escuro
+   ============================================================ */
+[data-theme="dark"]{
+  --bg:            #141813;
+  --bg-raised:     #1B201A;
+  --surface:       #222A21;
+  --surface-hi:    #2B3429;
+  --border:        #3B463A;
+  --border-soft:   #2E372C;
+  --text:          #E8EEE4;
+  --text-dim:      #B7C3B1;
+  --text-faint:    #8D9C88;
+
+  --leaf:          #7FBE8C;
+  --leaf-dim:      #5FA874;
+  --leaf-bright:   #A6DCB0;
+  --leaf-tint:     #243227;
+
+  --amber:         #D9AE63;
+  --amber-dim:     #E5C27E;
+  --clay:          #D29473;
+  --water:         #7FB2C6;
+  --water-dim:     #8FC8DC;
+  --lavender:      #AE9CD0;
+  --lavender-dim:  #C0B0DE;
+  --pink:          #DB96B4;
+  --pink-dim:      #E4A7C1;
+  --alert:         #E08570;
+  --alert-tint:    #3A2320;
+
+  --shadow-pop: 0 18px 40px rgba(0,0,0,0.50);
+
+  --on-accent:     #10150F;
+  --tint-amber:    #332A18;
+  --tint-water:    #1B2B31;
+  --tint-water-hi: #22343C;
+  --range-warning-text: #E8C87A;
+  --range-warning-bg:   #332B18;
+  --range-warning-dot:  #D9AE63;
+  --leaf-glow:     rgba(127,190,140,0.10);
+  --amber-glow:    rgba(217,174,99,0.08);
+  --leaf-border:   rgba(127,190,140,0.34);
+  --leaf-border-soft: rgba(127,190,140,0.26);
+  --leaf-border-faint: rgba(127,190,140,0.28);
+  --alert-border:  rgba(224,133,112,0.36);
+  --amber-border:  rgba(217,174,99,0.38);
+  --amber-border-soft: rgba(217,174,99,0.28);
+  --water-border:  rgba(127,178,198,0.36);
+  --overlay:       rgba(0,0,0,0.62);
+  --selection:     rgba(127,190,140,0.34);
+  --brand-leaf:    #A6DCB0;
+  --brand-leaf-2:  #7FBE8C;
+  --brand-stem:    #4E6653;
+  --chart-hover-line: #566354;
+  --shadow-control: rgba(0,0,0,0.45);
+
+  /* Atividades: no escuro usamos o tom pastel como fundo e o ponto
+     mais claro como texto, para manter contraste sobre superfície escura. */
+  --act-daily-bg:#22323F;   --act-daily-fg:#9CC9E4;   --act-daily-dot:#6FB3D9;
+  --act-rega-bg:#1E3226;    --act-rega-fg:#9BD3A1;    --act-rega-dot:#7BC47F;
+  --act-flush-bg:#1A3230;   --act-flush-fg:#8FD0C5;   --act-flush-dot:#5FC2B6;
+  --act-podapraga-bg:#33281B; --act-podapraga-fg:#E0AC74; --act-podapraga-dot:#E2A25E;
+  --act-regalst-bg:#2A2138; --act-regalst-fg:#C1A6E6; --act-regalst-dot:#B79CE0;
+  --act-alt-1-bg:#33211D;   --act-alt-1-fg:#E2A08E;   --act-alt-1-dot:#E79683;
+  --act-alt-2-bg:#312B1A;   --act-alt-2-fg:#D8C377;   --act-alt-2-dot:#D9C25E;
+  --act-alt-3-bg:#1E2E38;   --act-alt-3-fg:#9CC9E4;   --act-alt-3-dot:#7FB3D9;
+  --act-alt-4-bg:#2A2138;   --act-alt-4-fg:#C1A6E6;   --act-alt-4-dot:#C79CE0;
+
+  /* Séries dos gráficos e avatares de planta */
+  --series-temp:#E89A72; --series-umid:#74BCD3; --series-vpd:#B49ADB;
+  --series-ppfd:#E8B75C; --series-dli:#E593BC; --series-ph:#A2D06A;
+  --series-ec:#6FB37E;
+  --plant-0:#7FC98C; --plant-1:#E8B75C; --plant-2:#74BCD3; --plant-3:#E89A72;
+  --plant-4:#B49ADB; --plant-5:#E593BC; --plant-6:#A2D06A; --plant-7:#DCC158;
 }
 
 *{box-sizing:border-box;}
@@ -67,15 +198,15 @@ body::before{
   content:"";
   position:fixed; inset:0;
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(143,199,154,0.14), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(232,190,115,0.10), transparent 55%);
+    radial-gradient(1200px 600px at 10% -10%, var(--leaf-glow), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, var(--amber-glow), transparent 55%);
   pointer-events:none;
   z-index:0;
 }
 button{font-family:inherit;}
 input,select,textarea{font-family:inherit; font-size:inherit; color:inherit;}
 a{color:inherit;}
-::selection{background:rgba(111,174,124,0.30);}
+::selection{background:var(--selection);}
 
 /* Esconde as setas nativas dos campos numéricos — elas ficavam por cima
    do texto de unidade (ml/L, %, kPa etc.) */
@@ -97,6 +228,7 @@ p{margin:0;}
    ============================================================ */
 #app{
   position:relative;
+  z-index:1;
   display:grid;
   grid-template-columns:272px 1fr;
   min-height:100vh;
@@ -104,31 +236,6 @@ p{margin:0;}
   transition:grid-template-columns .18s ease;
 }
 #app.sidebar-collapsed{grid-template-columns:64px 1fr;}
-
-/* ---------- Barra superior / drawer / FAB do modo mobile
-   (escondidos por padrão; ativados só abaixo do breakpoint mobile) ---------- */
-.mobile-topbar{
-  display:none; position:fixed; top:0; left:0; right:0; height:54px; z-index:40;
-  align-items:center; justify-content:space-between; gap:10px; padding:0 12px;
-  background:var(--bg-raised); border-bottom:1px solid var(--border-soft);
-}
-.mobile-topbar-title{font-family:var(--font-display); font-weight:600; font-size:16px;}
-.mobile-menu-btn{
-  width:38px; height:38px; border-radius:10px; border:1px solid var(--border); flex:none;
-  background:var(--bg-raised); font-size:18px; display:flex; align-items:center; justify-content:center;
-  cursor:pointer; color:var(--text-dim); padding:0;
-}
-.mobile-menu-btn:hover{border-color:var(--leaf-dim); color:var(--leaf-bright);}
-.sidebar-backdrop{display:none; position:fixed; inset:0; background:rgba(20,30,15,0.4); z-index:55;}
-.sidebar-backdrop.show{display:block;}
-.fab{
-  display:none; position:fixed; bottom:22px; right:18px; width:56px; height:56px;
-  border-radius:50%; background:var(--leaf-dim); color:#fff; border:none;
-  font-size:28px; line-height:1; box-shadow:0 8px 20px rgba(60,100,70,0.35);
-  z-index:35; cursor:pointer; align-items:center; justify-content:center;
-}
-.fab:hover{background:var(--leaf-bright);}
-.fab.fab-hidden{display:none !important;}
 
 /* ---------- Sidebar ---------- */
 .sidebar{
@@ -152,7 +259,7 @@ p{margin:0;}
   border-radius:50%; background:var(--bg-raised); border:1px solid var(--border);
   display:flex; align-items:center; justify-content:center; cursor:pointer;
   z-index:20; color:var(--text-dim); font-size:13px; padding:0; line-height:1;
-  box-shadow:0 2px 6px rgba(60,75,55,0.12);
+  box-shadow:0 2px 6px var(--shadow-control);
   transition:left .18s ease, border-color .15s, color .15s;
 }
 #app.sidebar-collapsed .sidebar-toggle{left:52px;}
@@ -198,7 +305,7 @@ p{margin:0;}
 .gi-avatar{
   width:24px; height:24px; border-radius:50%; flex:none;
   display:flex; align-items:center; justify-content:center;
-  font-family:var(--font-display); font-size:11px; font-weight:600; color:#fff;
+  font-family:var(--font-display); font-size:11px; font-weight:600; color:var(--on-accent);
   box-shadow:0 0 0 2px transparent; transition:box-shadow .15s;
 }
 .grow-item.active .gi-avatar{box-shadow:0 0 0 2px var(--bg-raised), 0 0 0 4px var(--leaf-dim);}
@@ -223,30 +330,6 @@ p{margin:0;}
 .sidebar-foot{margin-top:auto; padding:10px 8px 2px; font-size:11px; color:var(--text-faint); border-top:1px solid var(--border-soft); display:flex; flex-direction:column; gap:8px;}
 .sidebar-foot .btn-ghost-row{border-style:solid;}
 .sidebar-foot-note{white-space:normal;}
-
-/* ---------- Conta Google / sincronização ---------- */
-.account-card{
-  display:flex; align-items:center; gap:8px; padding:7px 9px;
-  border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface);
-}
-.account-avatar{width:26px; height:26px; border-radius:50%; flex:none; object-fit:cover;}
-.account-avatar-fallback{
-  width:26px; height:26px; border-radius:50%; flex:none; background:var(--leaf-dim); color:#fff;
-  display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600;
-  font-family:var(--font-display);
-}
-.account-info{display:flex; flex-direction:column; min-width:0; flex:1; gap:1px;}
-.account-email{font-size:11.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.account-sync-status{font-size:10px; color:var(--text-faint); display:flex; align-items:center; gap:4px;}
-.account-sync-status .dot{width:6px; height:6px; border-radius:50%; background:var(--leaf-dim); flex:none;}
-.account-sync-status.syncing .dot{background:var(--amber-dim); animation:sync-pulse 1s infinite;}
-.account-sync-status.error{color:var(--alert);}
-.account-sync-status.error .dot{background:var(--alert);}
-@keyframes sync-pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
-.account-card .icon-btn{flex:none;}
-.sidebar.collapsed .account-card{padding:6px; justify-content:center;}
-.sidebar.collapsed .account-card .account-info,
-.sidebar.collapsed .account-card .icon-btn{display:none;}
 
 /* ---------- Modo recolhido: esconder textos, deixar só ícones/avatares
    bem centralizados e do mesmo tamanho, como uma dock de app ---------- */
@@ -276,7 +359,7 @@ p{margin:0;}
 .topbar{display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:22px;}
 .topbar-title-row{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;}
 .topbar h2{font-size:26px;}
-.stage-badge{font-size:11.5px; padding:4px 11px; border-radius:100px; background:var(--leaf-tint); color:var(--leaf-bright); border:1px solid rgba(111,174,124,0.30); white-space:nowrap;}
+.stage-badge{font-size:11.5px; padding:4px 11px; border-radius:100px; background:var(--leaf-tint); color:var(--leaf-bright); border:1px solid var(--leaf-border); white-space:nowrap;}
 .topbar-meta{margin-top:4px; color:var(--text-faint); font-size:12.5px; display:flex; gap:14px; flex-wrap:wrap;}
 .topbar-actions{display:flex; gap:10px; flex:none;}
 
@@ -286,10 +369,10 @@ p{margin:0;}
   display:inline-flex; align-items:center; gap:7px; transition:border-color .15s, background .15s;
 }
 .btn:hover{border-color:var(--leaf-dim); background:var(--surface);}
-.btn-primary{background:var(--leaf-dim); border-color:var(--leaf-dim); color:#fff; font-weight:600;}
+.btn-primary{background:var(--leaf-dim); border-color:var(--leaf-dim); color:var(--on-accent); font-weight:600;}
 .btn-primary:hover{background:var(--leaf-bright); border-color:var(--leaf-bright);}
 .btn-danger{color:var(--alert); border-color:transparent; background:transparent;}
-.btn-danger:hover{background:var(--alert-tint); border-color:rgba(217,123,104,0.30);}
+.btn-danger:hover{background:var(--alert-tint); border-color:var(--alert-border);}
 .btn-sm{padding:6px 11px; font-size:12px;}
 .btn-icon{padding:8px; line-height:0;}
 
@@ -339,7 +422,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .activity-pill{display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:100px; font-size:11.5px; white-space:nowrap; border:1px solid transparent;}
 .activity-pill .ap-dot{width:6px; height:6px; border-radius:50%; flex:none;}
 .nutrient-tags{display:flex; flex-wrap:wrap; gap:4px; max-width:220px;}
-.ntag{font-size:10.5px; padding:2px 7px; border-radius:5px; background:var(--leaf-tint); color:var(--leaf-bright); border:1px solid rgba(111,174,124,0.22); white-space:nowrap;}
+.ntag{font-size:10.5px; padding:2px 7px; border-radius:5px; background:var(--leaf-tint); color:var(--leaf-bright); border:1px solid var(--leaf-border-soft); white-space:nowrap;}
 .ntag.more{color:var(--text-faint); background:transparent; border-color:var(--border);}
 .num-cell{font-family:var(--font-mono); font-size:12.5px; white-space:nowrap; color:var(--text-dim);}
 .row-actions{display:flex; gap:6px; justify-content:flex-end;}
@@ -374,7 +457,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .plant-card .pc-stat .s-label{font-size:10px; color:var(--text-faint);}
 .plant-card .pc-stat .s-value{font-family:var(--font-mono); font-size:14px; margin-top:2px;}
 .plant-card-foot{display:flex; justify-content:flex-end; gap:6px; margin-top:2px;}
-.badge-harvested{font-size:10.5px; color:var(--amber-dim); background:#FBF2E1; border:1px solid rgba(217,166,78,0.35); padding:2px 8px; border-radius:100px;}
+.badge-harvested{font-size:10.5px; color:var(--amber-dim); background:var(--tint-amber); border:1px solid var(--amber-border); padding:2px 8px; border-radius:100px;}
 
 /* ---------- Tendencias panel ---------- */
 .tendencias-filtros{display:flex; align-items:flex-end; gap:14px; margin-bottom:18px; flex-wrap:wrap;}
@@ -441,7 +524,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 /* ============================================================
    MODAL
    ============================================================ */
-.modal-overlay{position:fixed; inset:0; background:rgba(60,70,55,0.28); display:none; align-items:flex-start; justify-content:center; padding:40px 20px 40px; z-index:50; overflow-y:auto; backdrop-filter:blur(2px);}
+.modal-overlay{position:fixed; inset:0; background:var(--overlay); display:none; align-items:flex-start; justify-content:center; padding:40px 20px 40px; z-index:50; overflow-y:auto; backdrop-filter:blur(2px);}
 .modal-overlay.open{display:flex;}
 .modal{background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius-lg); width:100%; max-width:760px; box-shadow:var(--shadow-pop); animation:modal-in .16s ease-out;}
 .modal.narrow{max-width:460px;}
@@ -473,7 +556,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 
 .nutrient-category-block{margin-bottom:14px;}
 .nutrient-category-title{font-size:11px; color:var(--text-dim); font-weight:600; margin-bottom:7px; display:flex; align-items:center; gap:7px;}
-.nutrient-category-title .cat-order{font-family:var(--font-mono); font-size:10px; color:#fff; background:var(--leaf-dim); border-radius:50%; width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; flex:none;}
+.nutrient-category-title .cat-order{font-family:var(--font-mono); font-size:10px; color:var(--on-accent); background:var(--leaf-dim); border-radius:50%; width:16px; height:16px; display:inline-flex; align-items:center; justify-content:center; flex:none;}
 .chip-toggle-list{display:flex; flex-wrap:wrap; gap:8px;}
 .chip-toggle{border:1px solid var(--border); background:var(--surface); color:var(--text-dim); padding:7px 12px; border-radius:100px; font-size:12.5px; cursor:pointer; user-select:none; display:flex; align-items:center; gap:6px;}
 .chip-toggle:hover{border-color:var(--leaf-dim);}
@@ -491,10 +574,10 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .ph-input-wrap input{flex:1;}
 
 .calc-row{display:flex; align-items:center; gap:8px; margin-top:6px;}
-.calc-btn{font-size:11px; color:var(--water-dim); background:#EAF4F7; border:1px solid rgba(95,168,191,0.35); padding:5px 9px; border-radius:6px; cursor:pointer; white-space:nowrap;}
-.calc-btn:hover{background:#DDEDF2;}
+.calc-btn{font-size:11px; color:var(--water-dim); background:var(--tint-water); border:1px solid var(--water-border); padding:5px 9px; border-radius:6px; cursor:pointer; white-space:nowrap;}
+.calc-btn:hover{background:var(--tint-water-hi);}
 .calc-mini-input{width:56px; padding:5px 6px; font-size:11px;}
-.auto-badge{font-size:10px; color:var(--water-dim); background:#EAF4F7; border:1px solid rgba(95,168,191,0.35); padding:2px 7px; border-radius:100px;}
+.auto-badge{font-size:10px; color:var(--water-dim); background:var(--tint-water); border:1px solid var(--water-border); padding:2px 7px; border-radius:100px;}
 
 .program-week-select{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:14px;}
 .program-week-select select{flex:1;}
@@ -502,15 +585,15 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 /* ---------- Faixas ideais (VPD / pH) ---------- */
 .range-pill{display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:100px; font-size:10.5px; font-family:var(--font-mono); white-space:nowrap;}
 .range-pill.range-ideal{background:var(--leaf-tint); color:var(--leaf-bright);}
-.range-pill.range-warning{background:#FBF2DC; color:#8C6D1F;}
+.range-pill.range-warning{background:var(--range-warning-bg); color:var(--range-warning-text);}
 .range-pill.range-alert{background:var(--alert-tint); color:var(--alert);}
 .range-pill.range-none{background:var(--surface-hi); color:var(--text-faint);}
 .range-text.range-ideal{color:var(--leaf-bright); font-weight:600;}
-.range-text.range-warning{color:#8C6D1F; font-weight:600;}
+.range-text.range-warning{color:var(--range-warning-text); font-weight:600;}
 .range-text.range-alert{color:var(--alert); font-weight:600;}
 .range-dot{width:7px; height:7px; border-radius:50%; display:inline-block; flex:none;}
 .range-dot.range-ideal{background:var(--leaf-bright);}
-.range-dot.range-warning{background:#C99A28;}
+.range-dot.range-warning{background:var(--range-warning-dot);}
 .range-dot.range-alert{background:var(--alert);}
 .range-dot.range-none{background:var(--border);}
 .field-label-row{display:flex; align-items:center; justify-content:space-between; gap:8px;}
@@ -523,7 +606,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .week-check-chip.checked{background:var(--leaf-tint); border-color:var(--leaf-dim); color:var(--leaf-bright);}
 .week-numbers-input{width:100%; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:7px 9px; font-size:12.5px; color:var(--text);}
 .week-number-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;}
-.week-number-chip{font-size:10.5px; padding:2px 8px; border-radius:100px; background:var(--leaf-tint); color:var(--leaf-bright); border:1px solid rgba(111,174,124,0.25);}
+.week-number-chip{font-size:10.5px; padding:2px 8px; border-radius:100px; background:var(--leaf-tint); color:var(--leaf-bright); border:1px solid var(--leaf-border-faint);}
 
 /* ---------- Importar planilha ---------- */
 .import-drop{
@@ -545,7 +628,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .import-finish-row{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text-dim); grid-column:1 / -1; margin-top:2px;}
 .import-finish-row input{width:auto;}
 .import-summary{font-size:11.5px; color:var(--text-faint); margin-top:8px; line-height:1.6;}
-.import-warning{font-size:11.5px; color:var(--amber-dim); background:#FBF2DC; border:1px solid rgba(168,121,31,0.25); padding:8px 10px; border-radius:var(--radius-sm); margin-top:8px;}
+.import-warning{font-size:11.5px; color:var(--amber-dim); background:var(--range-warning-bg); border:1px solid var(--amber-border-soft); padding:8px 10px; border-radius:var(--radius-sm); margin-top:8px;}
 .badge-finalizado{font-size:10.5px; color:var(--text-faint); background:var(--surface-hi); border:1px solid var(--border); padding:2px 9px; border-radius:100px; white-space:nowrap;}
 
 .form-error{color:var(--alert); font-size:12px; margin-top:10px; display:none;}
@@ -564,7 +647,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .week-block-head h4{font-size:13.5px; font-family:var(--font-ui); font-weight:600;}
 
 /* small confirm modal / toast */
-#toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--text); color:#fff; padding:10px 18px; border-radius:100px; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:100; box-shadow:var(--shadow-pop);}
+#toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:100px; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:100; box-shadow:var(--shadow-pop);}
 #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 
 @media (max-width:1300px){
@@ -572,118 +655,21 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
   .chart-grid{grid-template-columns:1fr;}
 }
 
-/* ============================================================
-   MODO MOBILE — mesmo visual (cores, tipografia, cantos
-   arredondados), reorganizado para uso com o polegar:
-   barra lateral vira gaveta, tabela de registros vira cartões,
-   modais ocupam a tela toda, e um botão flutuante substitui o
-   "+ Novo registro" do topo.
-   ============================================================ */
-@media (max-width:780px){
-  #app{grid-template-columns:1fr; min-width:0;}
-  .mobile-topbar{display:flex;}
-  .main{padding:70px 14px 90px;}
+/* ---------- Conta / sincronização Google ---------- */
+.account-box{padding:10px 8px 2px; border-top:1px solid var(--border-soft); display:flex; flex-direction:column; gap:8px;}
+.google-user{display:flex; align-items:center; gap:8px; min-width:0;}
+.google-avatar{width:28px; height:28px; border-radius:50%; object-fit:cover; background:var(--surface-hi); flex:none;}
+.google-user-name{font-size:11.5px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.sync-status{font-size:10.5px; color:var(--text-faint); padding:0 2px;}
+.google-login-btn{width:100%; justify-content:center;}
+.sidebar.collapsed .account-box{align-items:center; border-top:0; padding-left:0; padding-right:0;}
+.sidebar.collapsed .sync-status,
+.sidebar.collapsed .google-user-name{display:none;}
+.sidebar.collapsed .google-user{justify-content:center;}
 
-  .sidebar-toggle{display:none;}
-  .sidebar{
-    position:fixed; top:0; left:0; bottom:0; width:280px; max-width:84vw;
-    z-index:60; transform:translateX(-100%); border-right:none;
-    box-shadow:0 0 40px rgba(20,30,15,0.28);
-    padding:18px 16px 16px;
-  }
-  .sidebar.mobile-open{transform:translateX(0);}
-  /* No modo gaveta a barra sempre mostra o conteúdo completo — o modo
-     "recolhido só com ícones" é um recurso de desktop. */
-  .sidebar.collapsed{padding:18px 16px 16px;}
-  .sidebar.collapsed .brand-text,
-  .sidebar.collapsed .sidebar-label,
-  .sidebar.collapsed .bgr-label,
-  .sidebar.collapsed .gi-name,
-  .sidebar.collapsed .sidebar-foot-note,
-  .sidebar.collapsed #sidebarPlantsSection{display:revert;}
-  .sidebar.collapsed .nav-home-btn,
-  .sidebar.collapsed .btn-ghost-row,
-  .sidebar.collapsed .grow-item{width:auto; height:auto; padding:9px 10px; margin:0; border-radius:var(--radius-sm); justify-content:flex-start;}
-  .sidebar.collapsed .gi-avatar{width:24px; height:24px; font-size:11px;}
-
-  .topbar{flex-direction:column; align-items:stretch; gap:12px;}
-  .topbar-title-row{flex-wrap:wrap;}
-  .topbar h2{font-size:21px;}
-  .topbar-actions{width:100%;}
-  .topbar-actions #btnNovoRegistro{display:none;} /* o FAB assume esse papel no mobile */
-  .topbar-actions #btnExcluirCultivo{width:100%;}
-
-  .hero-strip{grid-template-columns:repeat(2,1fr);}
-  .hero-cell{padding:12px;}
-
-  .tabs{overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap;}
-  .tab-btn{white-space:nowrap;}
-
-  .form-grid,
-  .form-grid.cols-3,
-  .form-grid.cols-2{grid-template-columns:1fr 1fr;}
-
-  .overview-grid,
-  .chart-grid,
-  .plant-grid{grid-template-columns:1fr;}
-
-  .detail-inner{grid-template-columns:1fr; padding:16px;}
-  .kv-grid{grid-template-columns:repeat(2,1fr);}
-
-  /* Tabela de Registros -> cartões. As colunas secundárias (estágio,
-     litros, pH/EC de entrada, temp/umidade) somem do cartão compacto —
-     continuam disponíveis ao tocar para expandir o registro. */
-  .table-wrap{border:none; background:transparent;}
-  table.reg-table, table.reg-table tbody{display:block; width:100%;}
-  table.reg-table thead{display:none;}
-  table.reg-table tr.row-main{
-    display:grid; gap:8px 10px;
-    grid-template-columns:1fr auto;
-    grid-template-areas:"date actions" "activity activity" "nutrients nutrients";
-    background:var(--bg-raised); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
-    padding:14px; margin-bottom:10px;
-  }
-  table.reg-table tr.row-main td{display:block; padding:0; border:none;}
-  table.reg-table tr.row-main td:nth-child(1){grid-area:date;}
-  table.reg-table tr.row-main td:nth-child(3){grid-area:activity;}
-  table.reg-table tr.row-main td:nth-child(4){grid-area:nutrients;}
-  table.reg-table tr.row-main td:nth-child(9){grid-area:actions; align-self:start;}
-  table.reg-table tr.row-main td:nth-child(2),
-  table.reg-table tr.row-main td:nth-child(5),
-  table.reg-table tr.row-main td:nth-child(6),
-  table.reg-table tr.row-main td:nth-child(7),
-  table.reg-table tr.row-main td:nth-child(8){display:none;}
-  table.reg-table tr.detail-row{display:block;}
-  table.reg-table tr.detail-row td{display:block; padding:0;}
-
-  /* Modais ocupam a tela toda — mais fácil de preencher com o teclado
-     aberto do que uma caixa flutuante pequena. */
-  .modal-overlay{padding:0; align-items:stretch;}
-  .modal{max-width:100%; width:100%; height:100%; max-height:100%; border-radius:0; display:flex; flex-direction:column;}
-  .modal-body{flex:1; max-height:none;}
-
-  .plant-reading-table{display:block; overflow-x:auto;}
-
-  .icon-btn{padding:7px;}
-}
-@media (max-width:420px){
-  .hero-strip{grid-template-columns:repeat(2,1fr);}
-  .form-grid,
-  .form-grid.cols-3,
-  .form-grid.cols-2{grid-template-columns:1fr;}
-  .kv-grid{grid-template-columns:1fr;}
-}
 </style>
 </head>
 <body>
-
-<!-- ============ BARRA SUPERIOR MOBILE (só aparece em telas estreitas) ============ -->
-<div class="mobile-topbar" id="mobileTopbar">
-  <button class="mobile-menu-btn" id="btnOpenMobileSidebar" aria-label="Abrir menu" title="Abrir menu">☰</button>
-  <span class="mobile-topbar-title">GrowBro</span>
-  <span style="width:38px;"></span>
-</div>
-<div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
 <div id="app">
   <button class="sidebar-toggle" id="btnToggleSidebar" title="Recolher barra lateral">‹</button>
@@ -691,13 +677,13 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-        <path d="M13 2C13 2 16.5 6 16.5 11C16.5 14 15 16 13 17.5C11 16 9.5 14 9.5 11C9.5 6 13 2 13 2Z" fill="#8FC79A"/>
-        <path d="M13 8C13 8 18.5 9 20.5 13.5C22 17 20.5 20 18 21.5C16 19.8 14.8 17.3 15 14.5C15.2 11.6 13 8 13 8Z" fill="#6FAE7C"/>
-        <path d="M13 8C13 8 7.5 9 5.5 13.5C4 17 5.5 20 8 21.5C10 19.8 11.2 17.3 11 14.5C10.8 11.6 13 8 13 8Z" fill="#6FAE7C"/>
-        <line x1="13" y1="8" x2="13" y2="23" stroke="#B7D6BC" stroke-width="1.1"/>
+        <path d="M13 2C13 2 16.5 6 16.5 11C16.5 14 15 16 13 17.5C11 16 9.5 14 9.5 11C9.5 6 13 2 13 2Z" fill="var(--brand-leaf)"/>
+        <path d="M13 8C13 8 18.5 9 20.5 13.5C22 17 20.5 20 18 21.5C16 19.8 14.8 17.3 15 14.5C15.2 11.6 13 8 13 8Z" fill="var(--brand-leaf-2)"/>
+        <path d="M13 8C13 8 7.5 9 5.5 13.5C4 17 5.5 20 8 21.5C10 19.8 11.2 17.3 11 14.5C10.8 11.6 13 8 13 8Z" fill="var(--brand-leaf-2)"/>
+        <line x1="13" y1="8" x2="13" y2="23" stroke="var(--brand-stem)" stroke-width="1.1"/>
       </svg>
       <div class="brand-text">
-        <h1>GrowBro</h1>
+        <h1>Diário de Cultivo</h1>
         <span>acompanhamento diário</span>
       </div>
     </div>
@@ -718,11 +704,22 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
       <button class="btn-ghost-row" id="btnNovaPlantaSidebar" title="Adicionar planta"><span class="bgr-icon">+</span><span class="bgr-label">Adicionar planta</span></button>
     </div>
 
+
+    <div class="account-box">
+      <div class="google-user" id="googleUserBox" style="display:none;">
+        <img class="google-avatar" id="googleUserAvatar" alt="">
+        <span class="google-user-name" id="googleUserName"></span>
+      </div>
+      <button class="btn btn-primary btn-sm google-login-btn" id="btnGoogleLogin">Entrar com Google</button>
+      <button class="btn btn-sm google-login-btn" id="btnGoogleLogout" style="display:none;">Sair da conta</button>
+      <span class="sync-status" id="syncStatus">Somente neste dispositivo</span>
+    </div>
+
     <div class="sidebar-foot">
+      <button class="btn-ghost-row" id="btnTema" title="Alternar tema escuro" aria-pressed="false"><span class="bgr-icon" id="btnTemaIcon">🌙</span><span class="bgr-label" id="btnTemaLabel">Tema escuro</span></button>
       <button class="btn-ghost-row" id="btnAbrirImportar" title="Importar planilha"><span class="bgr-icon">📥</span><span class="bgr-label">Importar planilha</span></button>
       <button class="btn-ghost-row" id="btnAbrirProgramas" title="Programas de nutrição"><span class="bgr-icon">🧪</span><span class="bgr-label">Programas de nutrição</span></button>
-      <div id="accountBlock" class="account-block"></div>
-      <span class="sidebar-foot-note" id="sidebarFootNote">Dados salvos localmente no seu navegador.</span>
+      <span class="sidebar-foot-note">Sem login: dados locais. Com Google: dados sincronizados entre dispositivos.</span>
     </div>
   </aside>
 
@@ -825,13 +822,14 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
           </div>
           <div class="form-grid" style="margin-top:12px;">
             <div class="field">
-              <label for="fDli">DLI <span class="auto-badge">automático</span></label>
-              <div class="input-suffix-wrap"><input type="number" step="0.1" id="fDli" placeholder="0.0" readonly><span class="input-suffix">mol/dia</span></div>
+              <label for="fDli">DLI</label>
+              <div class="input-suffix-wrap"><input type="number" step="0.1" id="fDli" placeholder="0.0"><span class="input-suffix">mol/dia</span></div>
               <span class="range-hint" id="dliHint"></span>
               <div class="calc-row">
                 <span class="hint">fotoperíodo:</span>
                 <input type="number" class="calc-mini-input" id="calcFotoperiodo" value="18" step="0.5">
-                <span class="hint">h de luz/dia</span>
+                <span class="hint">h</span>
+                <button type="button" class="calc-btn" id="btnCalcDli">calcular a partir do PPFD</button>
               </div>
             </div>
           </div>
@@ -1059,9 +1057,10 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
   </div>
 </div>
 
-<button class="fab fab-hidden" id="btnFabNovoRegistro" title="Novo registro" aria-label="Novo registro">+</button>
 <div id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
