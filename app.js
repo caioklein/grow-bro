@@ -10,6 +10,7 @@
      CONSTANTES / CATÁLOGOS PADRÃO
      --------------------------------------------------------- */
   const STORAGE_KEY = "diario-cultivo:v2";
+  const LOCAL_TS_KEY = "diario-cultivo:localSavedAt";
   const SYNC_DEBOUNCE_MS = 700;
   let cloudUser = null;
   let cloudSyncTimer = null;
@@ -291,9 +292,22 @@
     state = defaultState();
   }
 
+  // Timestamp da última gravação local. Preferimos a chave dedicada, com
+  // queda para o campo dentro do próprio estado (escritos antigos).
+  function readLocalSavedAt() {
+    try {
+      const dedicated = localStorage.getItem(LOCAL_TS_KEY);
+      if (dedicated) return dedicated;
+    } catch (e) {}
+    return (state && state.localSavedAt) || null;
+  }
+
   function saveLocal() {
+    const now = new Date().toISOString();
+    state.localSavedAt = now;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(LOCAL_TS_KEY, now);
     } catch (e) {
       showToast("Não foi possível salvar (armazenamento indisponível).");
     }
@@ -316,11 +330,14 @@
     setSyncStatus("Salvando…");
 
     try {
+      // localSavedAt é um marcador local do dispositivo: enviá-lo para a nuvem
+      // faria um aparelho desatualizado parecer sempre mais novo.
+      const { localSavedAt, ...cloudData } = state;
       const { error } = await window.DIARIO_SUPABASE
         .from("user_data")
         .upsert({
           user_id: cloudUser.id,
-          data: state,
+          data: cloudData,
           updated_at: new Date().toISOString()
         }, { onConflict: "user_id" });
 
@@ -357,13 +374,16 @@
       const remoteState = migrate(data.data || defaultState());
 
       if (hasLocalUserData()) {
-        const useCloud = window.confirm(
-          "Encontramos dados salvos na sua conta Google.\n\n" +
-          "OK = usar os dados da nuvem neste dispositivo.\n" +
-          "Cancelar = manter os dados locais e enviá-los para a nuvem."
-        );
+        // Nada de perguntar ao usuário: a cópia mais recente vence.
+        // Empates (mesmos dados) resolvem a favor da nuvem, para que um
+        // dispositivo antigo não sobrescreva dados mais novos da nuvem.
+        const localAt = readLocalSavedAt();
+        const remoteAt = data.updated_at || null;
+        const localIsNewer =
+          !!localAt && !!remoteAt && new Date(localAt).getTime() > new Date(remoteAt).getTime();
 
-        if (!useCloud) {
+        if (localIsNewer) {
+          // O local é mais recente: envia para a nuvem e mantém a tela como está.
           await saveToCloud();
           return true;
         }
