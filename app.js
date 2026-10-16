@@ -2165,6 +2165,25 @@
   }
   document.getElementById("btnAbrirImportar").addEventListener("click", openImportModal);
 
+  /* ---------------------------------------------------------
+     EXPORTAR BACKUP (.json)
+     --------------------------------------------------------- */
+  function exportBackupJson() {
+    if (!hasLocalUserData()) { showToast("Nada para exportar ainda."); return; }
+    const json = JSON.stringify(state, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `growbro-backup-${todayISO()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast("Backup exportado.");
+  }
+  document.getElementById("btnExportarJson").addEventListener("click", exportBackupJson);
+
   document.getElementById("importFileInput").addEventListener("change", (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
