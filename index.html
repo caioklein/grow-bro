@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Diário de Cultivo</title>
+<title>GrowBro</title>
 <script>
 /* Aplica o tema antes da primeira pintura para evitar flash da página clara.
    Sem escolha salva, o app SEMPRE abre no tema claro: o escuro só entra por
@@ -550,11 +550,22 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .modal.narrow{max-width:460px;}
 .modal.wide{max-width:880px;}
 @keyframes modal-in{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+/* Modal centralizado na tela, com fundo mais desfocado (Apoie-me) */
+.modal-overlay.center > .modal{margin:auto;}
+.modal-overlay.blur-strong{backdrop-filter:blur(9px);}
 .modal-head{display:flex; align-items:center; justify-content:space-between; padding:18px 22px; border-bottom:1px solid var(--border-soft);}
 .modal-head h3{font-size:17px;}
 .modal-body{padding:20px 22px 6px; max-height:70vh; overflow-y:auto;}
 .modal-foot{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:16px 22px 20px;}
 .modal-foot .modal-foot-right{display:flex; gap:10px;}
+
+/* ---------- Modal Apoie-me ---------- */
+.apoie-body{display:flex; flex-direction:column; align-items:center; gap:15px; text-align:center; padding-bottom:26px;}
+.apoie-msg{color:var(--text-dim); font-size:13.5px; line-height:1.65;}
+.apoie-qr{width:226px; height:226px; border-radius:12px; border:1px solid var(--border-soft); background:#fff; padding:9px; display:block;}
+.apoie-hint{font-size:11px; color:var(--text-faint);}
+.apoie-pix-box{width:100%; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; display:flex; flex-direction:column; gap:9px;}
+.apoie-pix-code{font-size:10.5px; color:var(--text-dim); word-break:break-all; line-height:1.55; user-select:all; text-align:left;}
 .form-section{margin-bottom:22px;}
 .form-section-title{font-size:11px; color:var(--text-faint); letter-spacing:0.3px; display:flex; align-items:center; gap:8px; margin-bottom:12px;}
 .form-section-title::after{content:""; flex:1; height:1px; background:var(--border-soft);}
@@ -767,8 +778,8 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
         <line x1="13" y1="8" x2="13" y2="23" stroke="var(--brand-stem)" stroke-width="1.1"/>
       </svg>
       <div class="brand-text">
-        <h1>Diário de Cultivo</h1>
-        <span>acompanhamento diário</span>
+        <h1>GrowBro</h1>
+        <span>Seu companheiro de cultivo</span>
       </div>
     </div>
 
@@ -804,6 +815,7 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
       <button class="btn-ghost-row" id="btnAbrirImportar" title="Importar planilha"><span class="bgr-icon">📥</span><span class="bgr-label">Importar planilha</span></button>
       <button class="btn-ghost-row" id="btnExportarJson" title="Exportar backup (.json)"><span class="bgr-icon">💾</span><span class="bgr-label">Exportar backup</span></button>
       <button class="btn-ghost-row" id="btnAbrirProgramas" title="Programas de nutrição"><span class="bgr-icon">🧪</span><span class="bgr-label">Programas de nutrição</span></button>
+      <button class="btn-ghost-row" id="btnApoieMe" title="Apoie-me"><span class="bgr-icon">💚</span><span class="bgr-label">Apoie-me</span></button>
       <span class="sidebar-foot-note">Sem login: dados locais. Com Google: dados sincronizados entre dispositivos.</span>
     </div>
   </aside>
@@ -1145,6 +1157,25 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
       <div class="modal-foot-right">
         <button class="btn" data-close-modal>Cancelar</button>
         <button class="btn btn-danger" id="btnConfirmAction" style="border:1px solid var(--alert);">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL: apoie-me ============ -->
+<div class="modal-overlay center blur-strong" id="modalApoieMe">
+  <div class="modal narrow">
+    <div class="modal-head">
+      <h3>Apoie-me 💚</h3>
+      <button class="icon-btn" data-close-modal>✕</button>
+    </div>
+    <div class="modal-body apoie-body">
+      <p class="apoie-msg">O GrowBro foi feito com muito amor e carinho para suprir a minha necessidade diária de onde registrar meu cultivo e que não fosse uma planilha de excel, mas eu também sei que as outras alternativas não são tão completas e/ou são pagas, por isso faço questão de manter o GrowBro e seu desenvolvimento futuro gratuito. Sou apenas um amador e seu apoio significa muito, não importa o valor! Pretendo continuar criando ferramentas úteis assim no futuro, então fica ligado no meu github!</p>
+      <img class="apoie-qr" src="pix-qrcode.png" alt="QR code para doação via PIX" width="226" height="226">
+      <span class="apoie-hint">É só scanear o QR code com seu app do banco, ou copie o código abaixo</span>
+      <div class="apoie-pix-box">
+        <span class="apoie-pix-code mono" id="apoiePixCode" data-full="00020126330014br.gov.bcb.pix0111417827758895204000053039865802BR5917CAIO MATTOS KLEIN6009Sao Paulo62290525REC6AB8DC43546CD60565662963043ED8">00020126330014br.gov.bcb.pix0111417827758895204000053039865802BR5917…</span>
+        <button class="btn btn-sm btn-primary" id="btnCopiarPix">Copiar código PIX</button>
       </div>
     </div>
   </div>

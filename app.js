@@ -1,5 +1,5 @@
 /* ================================================================
-   DIÁRIO DE CULTIVO — lógica da aplicação
+   GROWBRO — lógica da aplicação
    Os dados são persistidos localmente e, quando configurado, sincronizados com Supabase via login Google.
    ================================================================ */
 
@@ -719,6 +719,30 @@
     openPlantaModal(null);
   });
   document.getElementById("btnAbrirProgramas").addEventListener("click", () => openProgramasModal());
+  document.getElementById("btnApoieMe").addEventListener("click", () => {
+    const body = document.querySelector("#modalApoieMe .modal-body");
+    if (body) body.scrollTop = 0;
+    openModal("modalApoieMe");
+  });
+  document.getElementById("btnCopiarPix").addEventListener("click", async () => {
+    const el = document.getElementById("apoiePixCode");
+    const code = (el.dataset.full || el.textContent).trim();
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast("Código PIX copiado!");
+    } catch (e) {
+      const ta = document.createElement("textarea");
+      ta.value = code;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+      document.body.removeChild(ta);
+      showToast(ok ? "Código PIX copiado!" : "Não foi possível copiar.");
+    }
+  });
   document.getElementById("btnTema").addEventListener("click", toggleTema);
   document.getElementById("btnVisaoGeral").addEventListener("click", () => {
     ui.activeTab = "visaoGeral";
