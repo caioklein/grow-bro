@@ -239,23 +239,27 @@ p{margin:0;}
 
 /* ---------- Sidebar ---------- */
 .sidebar{
-  position:relative;
+  position:sticky;
+  top:0;
+  align-self:start;
+  height:100vh;
   background:var(--bg-raised);
   border-right:1px solid var(--border-soft);
   display:flex;
   flex-direction:column;
   padding:22px 16px 16px;
   gap:22px;
-  overflow:hidden;
+  overflow-y:auto;
+  overflow-x:hidden;
   transition:padding .18s ease;
 }
 .sidebar.collapsed{padding:22px 10px 16px;}
 
-/* O botão fica fora da .sidebar (que tem overflow:hidden para a transição
-   de largura) para não ser cortado — posicionado relativo ao #app e
-   deslizando junto com a borda da barra lateral. */
+/* O botão fica fora da .sidebar (que tem overflow para a transição
+   de largura) para não ser cortado — ancorado ao viewport para acompanhar
+   a barra lateral fixa, e deslizando junto com a borda dela. */
 .sidebar-toggle{
-  position:absolute; top:20px; left:260px; width:24px; height:24px;
+  position:fixed; top:20px; left:260px; width:24px; height:24px;
   border-radius:50%; background:var(--bg-raised); border:1px solid var(--border);
   display:flex; align-items:center; justify-content:center; cursor:pointer;
   z-index:20; color:var(--text-dim); font-size:13px; padding:0; line-height:1;
@@ -264,6 +268,11 @@ p{margin:0;}
 }
 #app.sidebar-collapsed .sidebar-toggle{left:52px;}
 .sidebar-toggle:hover{border-color:var(--leaf-dim); color:var(--leaf-bright);}
+/* Em janelas mais estreitas que o app (1100px), a página rola na
+   horizontal e o botão precisa voltar a rolar junto com o conteúdo. */
+@media (max-width:1099px){
+  .sidebar-toggle{position:absolute;}
+}
 
 .brand{display:flex; align-items:center; gap:10px; padding:0 4px;}
 .brand svg{flex:none;}
@@ -521,6 +530,17 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 .overview-stat .os-label{font-size:10.5px; color:var(--text-faint);}
 .overview-stat .os-value{font-family:var(--font-mono); font-size:19px; margin-top:4px;}
 
+.rem-list{display:flex; flex-direction:column; gap:8px;}
+.rem-row{display:flex; align-items:center; gap:12px; width:100%; text-align:left; background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:10px 12px; cursor:pointer; transition:border-color .15s, background .15s;}
+.rem-row:hover{border-color:var(--amber-border-soft); background:var(--tint-amber);}
+.rem-when{display:flex; flex-direction:column; gap:1px; flex:none; min-width:88px;}
+.rem-rel{font-size:12px; font-weight:600; color:var(--amber-dim);}
+.rem-full{font-size:10.5px; color:var(--text-faint);}
+.rem-note{flex:1; font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.rem-chev{color:var(--text-faint); font-size:15px; flex:none; line-height:1;}
+.rem-empty{font-size:12.5px; color:var(--text-faint); line-height:1.6;}
+.rem-more{font-size:11px; color:var(--text-faint); margin-top:10px;}
+
 /* ============================================================
    MODAL
    ============================================================ */
@@ -649,6 +669,70 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
 /* small confirm modal / toast */
 #toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--text); color:var(--bg); padding:10px 18px; border-radius:100px; font-size:13px; opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; z-index:100; box-shadow:var(--shadow-pop);}
 #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+/* ---------- Fotos do registro ---------- */
+.entry-photo-list{display:flex; flex-direction:column; gap:8px;}
+.entry-photo-item{display:flex; align-items:center; gap:10px; border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:8px; background:var(--surface);}
+.entry-photo-thumb{width:54px; height:54px; object-fit:cover; border-radius:6px; flex:none; background:var(--surface-hi);}
+.entry-photo-info{flex:1; display:flex; flex-direction:column; gap:5px; min-width:0;}
+.entry-photo-info label{font-size:10.5px; color:var(--text-faint);}
+.entry-photo-info select{background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:6px 8px; font-size:12.5px; color:var(--text);}
+.entry-photo-empty{font-size:12.5px; color:var(--text-faint);}
+
+/* ---------- Calendário ---------- */
+.cal-toolbar{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; flex-wrap:wrap; max-width:1092px;}
+.cal-nav{display:flex; align-items:center; gap:10px;}
+.cal-month-label{font-family:var(--font-display); font-size:18px; min-width:170px; text-align:center;}
+.cal-layout{display:flex; flex-wrap:wrap; align-items:flex-start; gap:20px; max-width:100%;}
+.cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px; background:var(--border-soft); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:5px; max-width:1092px; flex:1 1 720px; min-width:720px;}
+.cal-weekday{font-size:10.5px; color:var(--text-faint); text-align:center; padding:4px 0; background:var(--bg-raised); border-radius:var(--radius-sm);}
+.cal-day{background:var(--bg-raised); border-radius:var(--radius-sm); min-height:96px; aspect-ratio:1/1; max-height:150px; padding:7px 8px; cursor:pointer; display:flex; flex-direction:column; gap:5px; border:1px solid transparent; overflow:hidden;}
+.cal-day:hover{border-color:var(--leaf-dim);}
+.cal-day.has-entry{background:var(--leaf-tint); border-color:var(--leaf-border-soft);}
+.cal-day.has-entry .cal-day-num{color:var(--text);}
+.cal-day-blank{background:var(--bg); cursor:default;}
+.cal-day-blank:hover{border-color:transparent;}
+.cal-day.today .cal-day-num{color:var(--leaf-bright); font-weight:600;}
+.cal-day.selected{border-color:var(--leaf-dim); box-shadow:0 0 0 1px var(--leaf-dim);}
+.cal-day-num{font-family:var(--font-mono); font-size:11.5px; color:var(--text-dim);}
+.cal-day-pills{display:flex; flex-direction:column; gap:3px; min-width:0;}
+.cal-act-pill{font-size:9.5px; line-height:1.5; padding:1px 7px; border-radius:100px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; align-self:flex-start; border:1px solid transparent;}
+.cal-act-more{background:transparent; color:var(--text-faint); border-color:var(--border);}
+.cal-rem-pill{background:var(--tint-amber); color:var(--amber-dim); border-color:var(--amber-border-soft);}
+.cal-day-thumb-wrap{position:relative; margin-top:auto; border-radius:6px; overflow:hidden; flex:none;}
+.cal-day-thumb{display:block; width:100%; height:46px; object-fit:cover; background:var(--surface-hi);}
+.cal-day-thumb-count{position:absolute; right:3px; bottom:3px; background:var(--text); color:var(--bg); font-size:9px; padding:1px 5px; border-radius:100px; opacity:0.9;}
+.cal-summary{display:flex; flex-direction:column; gap:14px; flex:1 1 340px; min-width:340px; max-width:1092px;}
+.cal-empty{font-size:12.5px; color:var(--text-faint); padding:20px; border:1px dashed var(--border); border-radius:var(--radius-lg); text-align:center; background:var(--bg-raised);}
+.cal-day-card{border:1px solid var(--border-soft); border-radius:var(--radius-lg); background:var(--bg-raised); padding:16px 18px 18px;}
+.cal-day-card-head{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+.cal-card-date{margin-left:auto; font-family:var(--font-mono); font-size:11.5px; color:var(--text-faint);}
+.cal-stats{display:grid; grid-template-columns:repeat(auto-fit, minmax(104px,1fr)); gap:8px;}
+.cal-stat{background:var(--surface); border-radius:var(--radius-sm); padding:8px 10px; display:flex; flex-direction:column; gap:2px;}
+.cal-stat .cs-label{font-size:10px; color:var(--text-faint);}
+.cal-stat .cs-value{font-family:var(--font-mono); font-size:13.5px;}
+.cal-obs{margin-top:12px; font-size:12.5px; color:var(--text-dim); line-height:1.6; white-space:pre-wrap; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;}
+.cal-photo-grid{display:flex; flex-wrap:wrap; gap:12px; margin-top:14px;}
+.cal-photo{width:112px; cursor:zoom-in;}
+.cal-photo img{width:112px; height:112px; object-fit:cover; border-radius:8px; border:1px solid var(--border-soft); display:block; background:var(--surface-hi);}
+.cal-photo .cp-label{display:flex; align-items:center; gap:5px; font-size:10.5px; color:var(--text-dim); margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.cal-photo .cp-dot{width:7px; height:7px; border-radius:50%; flex:none;}
+
+/* ---------- Lembretes do calendário ---------- */
+.cal-reminder-box{border:1px solid var(--amber-border-soft); background:var(--tint-amber); border-radius:var(--radius-lg); padding:14px 16px 16px;}
+.cal-reminder-box h4{font-size:11px; color:var(--amber-dim); font-weight:500; margin-bottom:10px; letter-spacing:0.3px;}
+.cal-reminders-list{display:flex; flex-direction:column; gap:6px; margin-bottom:12px;}
+.cal-reminder-item{display:flex; align-items:center; gap:8px; background:var(--bg-raised); border:1px solid var(--border-soft); border-radius:var(--radius-sm); padding:7px 8px 7px 12px;}
+.cal-reminder-note{flex:1; font-size:12.5px; color:var(--text); white-space:pre-wrap; word-break:break-word;}
+.cal-reminder-form{display:flex; gap:8px; align-items:center;}
+.cal-reminder-form input{flex:1; min-width:0; background:var(--bg-raised); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 10px; font-size:12.5px; color:var(--text);}
+.cal-reminder-form input:focus{outline:none; border-color:var(--amber-dim);}
+
+/* ---------- Lightbox de foto ---------- */
+.photo-lightbox{position:fixed; inset:0; z-index:80; background:var(--overlay); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:34px 24px; cursor:zoom-out; backdrop-filter:blur(3px);}
+.photo-lightbox[hidden]{display:none;}
+.photo-lightbox img{max-width:min(92vw, 940px); max-height:78vh; border-radius:12px; box-shadow:var(--shadow-pop);}
+.photo-lightbox .pl-caption{background:var(--bg-raised); color:var(--text); font-size:12px; padding:7px 14px; border-radius:100px; border:1px solid var(--border);}
 
 @media (max-width:1300px){
   .hero-strip{grid-template-columns:repeat(5,1fr);}
@@ -844,6 +928,14 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
             </thead>
             <tbody id="saidaTableBody"></tbody>
           </table>
+        </div>
+
+        <div class="form-section" id="fotosSection">
+          <div class="form-section-title">Fotos</div>
+          <div id="entryPhotoList" class="entry-photo-list"></div>
+          <button type="button" class="chip-add" id="btnAddFoto" style="margin-top:8px;">+ adicionar foto</button>
+          <input type="file" id="fotoFileInput" accept="image/*" multiple style="display:none;">
+          <span class="range-hint" id="fotoHint">Cada foto pode ser vinculada a uma planta do cultivo. As imagens são comprimidas antes de serem salvas junto do registro.</span>
         </div>
 
         <div class="form-section">
@@ -1056,6 +1148,12 @@ table.reg-table tbody tr.row-main.expanded{background:var(--surface);}
       </div>
     </div>
   </div>
+</div>
+
+<!-- ============ LIGHTBOX: foto ============ -->
+<div class="photo-lightbox" id="photoLightbox" hidden>
+  <img id="photoLightboxImg" alt="Foto do registro">
+  <span class="pl-caption" id="photoLightboxCaption"></span>
 </div>
 
 <div id="toast"></div>

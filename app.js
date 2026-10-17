@@ -202,6 +202,8 @@
     confirmAction: null,
     nutrienteTarget: null, // { list, rerender } — para onde vai o próximo nutriente adicionado
     tendenciasFiltro: { inicio: null, fim: null }, // null/null = mostrar todo o histórico
+    calendarioMes: null, // "YYYY-MM" — meses visualizado no calendário
+    calendarioDia: null, // "YYYY-MM-DD" — dia selecionado no calendário
   };
 
   function uid() {
@@ -780,12 +782,14 @@
 
       <div class="tabs">
         <button class="tab-btn ${ui.activeTab === "visaoGeral" ? "active" : ""}" data-tab="visaoGeral">Visão Geral</button>
+        <button class="tab-btn ${ui.activeTab === "calendario" ? "active" : ""}" data-tab="calendario">Calendário</button>
         <button class="tab-btn ${ui.activeTab === "registros" ? "active" : ""}" data-tab="registros">Registros</button>
         <button class="tab-btn ${ui.activeTab === "plantas" ? "active" : ""}" data-tab="plantas">Plantas</button>
         <button class="tab-btn ${ui.activeTab === "tendencias" ? "active" : ""}" data-tab="tendencias">Tendências</button>
       </div>
 
       <div class="panel ${ui.activeTab === "visaoGeral" ? "active" : ""}" id="panelVisaoGeral"></div>
+      <div class="panel ${ui.activeTab === "calendario" ? "active" : ""}" id="panelCalendario"></div>
       <div class="panel ${ui.activeTab === "registros" ? "active" : ""}" id="panelRegistros"></div>
       <div class="panel ${ui.activeTab === "plantas" ? "active" : ""}" id="panelPlantas"></div>
       <div class="panel ${ui.activeTab === "tendencias" ? "active" : ""}" id="panelTendencias"></div>
@@ -815,6 +819,7 @@
     });
 
     renderVisaoGeralPanel(grow, entries);
+    renderCalendarioPanel(grow, entries);
     renderRegistrosPanel(grow, entries);
     renderPlantasPanel(grow, entries);
     renderTendenciasPanel(grow, entries);
@@ -894,6 +899,37 @@
     </div>`;
   }
 
+  function renderUpcomingRemindersCard(grow) {
+    const today = todayISO();
+    const upcoming = (grow.reminders || [])
+      .filter(r => r.data >= today)
+      .sort((a, b) => a.data.localeCompare(b.data) || (a.criadoEm || 0) - (b.criadoEm || 0));
+    const shown = upcoming.slice(0, 5);
+    const restCount = upcoming.length - shown.length;
+    if (!shown.length) {
+      return `
+        <div class="overview-card full">
+          <h3>Próximos lembretes</h3>
+          <p class="rem-empty">Nenhum lembrete agendado. Abra o Calendário, clique em uma data futura e adicione uma nota rápida.</p>
+        </div>`;
+    }
+    const rows = shown.map(r => `
+      <button class="rem-row" data-rem-go="${r.data}">
+        <span class="rem-when">
+          <span class="rem-rel">${relativeDay(r.data)}</span>
+          <span class="rem-full">${formatDateBR(r.data)}</span>
+        </span>
+        <span class="rem-note">${escapeHtml(r.nota)}</span>
+        <span class="rem-chev">›</span>
+      </button>`).join("");
+    return `
+      <div class="overview-card full">
+        <h3>Próximos lembretes</h3>
+        <div class="rem-list">${rows}</div>
+        ${restCount ? `<div class="rem-more">+${restCount} ${restCount === 1 ? "lembrete" : "lembretes"} no Calendário.</div>` : ""}
+      </div>`;
+  }
+
   function renderVisaoGeralPanel(grow, entries) {
     const panel = document.getElementById("panelVisaoGeral");
     if (!panel) return;
@@ -953,6 +989,7 @@
             <div class="overview-stat"><div class="os-label">Programa</div><div class="os-value" style="font-size:13px;">${program ? escapeHtml(program.nome) : "—"}</div></div>
           </div>
         </div>
+        ${renderUpcomingRemindersCard(grow)}
         <div class="overview-card full">
           <div class="chart-card-head">
             <h3>Temperatura &amp; Umidade — últimos 7 dias registrados</h3>
@@ -974,6 +1011,15 @@
     } else {
       document.getElementById("chartOverview7d").innerHTML = `<div class="chart-empty">Adicione ao menos 2 registros para montar o gráfico.</div>`;
     }
+
+    panel.querySelectorAll("[data-rem-go]").forEach(el => {
+      el.addEventListener("click", () => {
+        ui.activeTab = "calendario";
+        ui.calendarioDia = el.dataset.remGo;
+        ui.calendarioMes = el.dataset.remGo.slice(0, 7);
+        renderAll();
+      });
+    });
   }
 
   /* ===========================================================
@@ -1063,6 +1109,7 @@
         });
       });
     });
+    wirePhotoClicks(panel);
   }
 
   function renderEntryDetailRow(grow, entry) {
@@ -1110,6 +1157,7 @@
                 </table>`
             }
             ${entry.observacoes ? `<h4 style="margin-top:16px;">Observações</h4><p style="font-size:12.5px; color:var(--text-dim); line-height:1.6; white-space:pre-wrap;">${escapeHtml(entry.observacoes)}</p>` : ""}
+            ${(entry.photos || []).length ? `<h4 style="margin-top:16px;">Fotos</h4>${entryPhotoGridHtml(grow, entry)}` : ""}
           </div>
         </div>
       </td></tr>`;
@@ -1173,13 +1221,242 @@
       btn.addEventListener("click", () => {
         const pid = btn.dataset.excluirPlanta;
         const planta = grow.plants.find(p => p.id === pid);
-        askConfirm("Excluir planta", `Excluir "${planta.nome}"? As leituras de saída dela nos registros existentes serão removidas.`, () => {
+        askConfirm("Excluir planta", `Excluir "${planta.nome}"? As leituras de saída e fotos vinculadas a ela nos registros existentes serão removidas.`, () => {
           grow.plants = grow.plants.filter(p => p.id !== pid);
-          grow.entries.forEach(e => { if (e.leituras) delete e.leituras[pid]; });
+          grow.entries.forEach(e => {
+            if (e.leituras) delete e.leituras[pid];
+            if (Array.isArray(e.photos)) e.photos = e.photos.filter(ph => ph.plantId !== pid);
+          });
           save();
           renderAll();
           showToast("Planta excluída.");
         });
+      });
+    });
+  }
+
+  /* ===========================================================
+     PANEL: CALENDÁRIO
+     =========================================================== */
+  const MESES_NOMES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  const DIAS_SEMANA_CURTOS = ["D", "S", "T", "Q", "Q", "S", "S"];
+
+  function addMonths(mesISO, n) {
+    let [y, m] = mesISO.split("-").map(Number);
+    m += n;
+    while (m < 1) { m += 12; y--; }
+    while (m > 12) { m -= 12; y++; }
+    return `${y}-${String(m).padStart(2, "0")}`;
+  }
+
+  function entryPhotoGridHtml(grow, entry) {
+    const photos = entry.photos || [];
+    if (!photos.length) return "";
+    return `<div class="cal-photo-grid">${photos.map(ph => {
+      const planta = grow.plants.find(p => p.id === ph.plantId);
+      const label = planta ? escapeHtml(planta.nome) : "Sem planta";
+      const dot = planta ? plantColor(grow, planta.id) : "var(--border)";
+      const caption = `${formatDateBR(entry.data)} · ${planta ? planta.nome : "Sem planta"} · ${entry.atividade}`;
+      return `
+        <div class="cal-photo" data-caption="${escapeAttr(caption)}">
+          <img src="${ph.dataUrl}" alt="${escapeAttr(planta ? planta.nome : "Foto do registro")}">
+          <span class="cp-label"><span class="cp-dot" style="background:${dot}"></span>${label}</span>
+        </div>`;
+    }).join("")}</div>`;
+  }
+
+  function wirePhotoClicks(container) {
+    container.querySelectorAll(".cal-photo").forEach(el => {
+      el.addEventListener("click", () => {
+        const img = el.querySelector("img");
+        if (img) openPhotoLightbox(img.src, el.dataset.caption || "");
+      });
+    });
+  }
+
+  function openPhotoLightbox(src, caption) {
+    document.getElementById("photoLightboxImg").src = src;
+    document.getElementById("photoLightboxCaption").textContent = caption;
+    document.getElementById("photoLightbox").hidden = false;
+  }
+  function closePhotoLightbox() {
+    const box = document.getElementById("photoLightbox");
+    box.hidden = true;
+    document.getElementById("photoLightboxImg").src = "";
+  }
+  document.getElementById("photoLightbox").addEventListener("click", closePhotoLightbox);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !document.getElementById("photoLightbox").hidden) closePhotoLightbox();
+  });
+
+  function renderCalDayCard(grow, entry) {
+    const ac = activityColor(entry.atividade);
+    const vpdSt = vpdStatus(entry.vpd, entry.estagio);
+    const phSt = phStatus(entry.phEntrada, grow.tipo);
+
+    const stats = [
+      ["Temperatura", `${fmtNum(entry.temperatura, 1)} °C`, ""],
+      ["Umidade", `${fmtNum(entry.umidade, 0)} %`, ""],
+      ["VPD", `${fmtNum(entry.vpd, 2)} kPa`, rangeTextClass(vpdSt)],
+      ["pH entrada", fmtNum(entry.phEntrada, 2), rangeTextClass(phSt)],
+      ["EC entrada", `${fmtNum(entry.ecEntrada, 2)} mS/cm`, ""],
+      ["Litros", `${fmtNum(entry.litros, 1)} L`, ""],
+    ].map(([label, value, cls]) => `
+      <span class="cal-stat">
+        <span class="cs-label">${label}</span>
+        <span class="cs-value ${cls}">${value}</span>
+      </span>`).join("");
+
+    const tags = (entry.nutrientes || []).filter(n => n.nome);
+    const tagsHtml = tags.length
+      ? `<div class="nutrient-tags" style="margin-top:12px;">${tags.slice(0, 6).map(n => `<span class="ntag">${escapeHtml(n.nome)}${n.dose ? ` · ${escapeHtml(n.dose)} ml/L` : ""}</span>`).join("")}${tags.length > 6 ? `<span class="ntag more">+${tags.length - 6}</span>` : ""}</div>`
+      : "";
+
+    const photosHtml = (entry.photos || []).length
+      ? `<h4 style="font-size:11px; color:var(--text-faint); font-weight:500; margin-top:16px;">Fotos por planta</h4>${entryPhotoGridHtml(grow, entry)}`
+      : "";
+
+    return `
+      <div class="cal-day-card">
+        <div class="cal-day-card-head">
+          <span class="activity-pill" style="background:${ac.bg}; color:${ac.fg};"><span class="ap-dot" style="background:${ac.dot}"></span>${escapeHtml(entry.atividade)}</span>
+          <span class="stage-badge">${escapeHtml(entry.estagio)}</span>
+          <span class="cal-card-date">${formatDateBR(entry.data)}</span>
+        </div>
+        <div class="cal-stats">${stats}</div>
+        ${tagsHtml}
+        ${entry.observacoes ? `<p class="cal-obs">${escapeHtml(entry.observacoes)}</p>` : ""}
+        ${photosHtml}
+      </div>`;
+  }
+
+  function renderCalRemindersBox(grow, dateIso) {
+    const reminders = (grow.reminders || []).filter(r => r.data === dateIso)
+      .sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0));
+    const isFuture = dateIso > todayISO();
+    if (!reminders.length && !isFuture) return "";
+    const listHtml = reminders.length
+      ? `<div class="cal-reminders-list">${reminders.map(r => `
+          <div class="cal-reminder-item">
+            <span class="cal-reminder-note">${escapeHtml(r.nota)}</span>
+            <button class="icon-btn" data-rem-del="${r.id}" title="Remover lembrete">✕</button>
+          </div>`).join("")}</div>`
+      : "";
+    const formHtml = isFuture
+      ? `<div class="cal-reminder-form">
+          <input type="text" id="calReminderInput" placeholder="Ex: aplicar CalMag às 8h" maxlength="200">
+          <button class="btn btn-primary btn-sm" id="calReminderAdd">Adicionar</button>
+        </div>`
+      : "";
+    return `
+      <div class="cal-reminder-box">
+        <h4>🔔 Lembretes</h4>
+        ${listHtml}
+        ${formHtml}
+      </div>`;
+  }
+
+  function renderCalendarioPanel(grow, entries) {
+    const panel = document.getElementById("panelCalendario");
+    if (!panel) return;
+
+    const today = todayISO();
+    if (!ui.calendarioMes) ui.calendarioMes = today.slice(0, 7);
+    if (!ui.calendarioDia) ui.calendarioDia = today;
+
+    const [ano, mes] = ui.calendarioMes.split("-").map(Number);
+    const firstWeekday = new Date(ano, mes - 1, 1).getDay();
+    const daysInMonth = new Date(ano, mes, 0).getDate();
+
+    const byDate = {};
+    entries.forEach(e => { (byDate[e.data] = byDate[e.data] || []).push(e); });
+    Object.values(byDate).forEach(list => list.sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0)));
+
+    const remindersByDate = {};
+    (grow.reminders || []).forEach(r => { (remindersByDate[r.data] = remindersByDate[r.data] || []).push(r); });
+
+    let cells = "";
+    for (let i = 0; i < firstWeekday; i++) cells += `<div class="cal-day cal-day-blank"></div>`;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${ui.calendarioMes}-${String(d).padStart(2, "0")}`;
+      const dayEntries = byDate[iso] || [];
+      const dayReminders = remindersByDate[iso] || [];
+      const hasEntry = dayEntries.length > 0;
+      const photoCount = dayEntries.reduce((acc, e) => acc + ((e.photos || []).length), 0);
+      let firstPhoto = null;
+      for (const e of dayEntries) {
+        if (e.photos && e.photos.length) { firstPhoto = e.photos[0].dataUrl; break; }
+      }
+      const pills = dayEntries.slice(0, 2).map(e => {
+        const ac = activityColor(e.atividade);
+        return `<span class="cal-act-pill" style="background:${ac.bg}; color:${ac.fg};">${escapeHtml(e.atividade)}</span>`;
+      }).join("");
+      const morePill = dayEntries.length > 2 ? `<span class="cal-act-pill cal-act-more">+${dayEntries.length - 2}</span>` : "";
+      const remPills = dayReminders.slice(0, 2).map(r => `<span class="cal-act-pill cal-rem-pill">🔔 ${escapeHtml(r.nota)}</span>`).join("");
+      const remMorePill = dayReminders.length > 2 ? `<span class="cal-act-pill cal-act-more">+${dayReminders.length - 2}</span>` : "";
+      const title = dayEntries.map(e => e.atividade).concat(dayReminders.map(r => "🔔 " + r.nota)).join(" · ");
+      cells += `
+        <div class="cal-day ${hasEntry ? "has-entry" : ""} ${ui.calendarioDia === iso ? "selected" : ""} ${iso === today ? "today" : ""}" data-date="${iso}"${title ? ` title="${escapeAttr(title)}"` : ""}>
+          <span class="cal-day-num">${d}</span>
+          ${(hasEntry || dayReminders.length) ? `<span class="cal-day-pills">${pills}${morePill}${remPills}${remMorePill}</span>` : ""}
+          ${firstPhoto ? `<span class="cal-day-thumb-wrap"><img class="cal-day-thumb" src="${firstPhoto}" alt="">${photoCount > 1 ? `<span class="cal-day-thumb-count">📷 ${photoCount}</span>` : ""}</span>` : ""}
+        </div>`;
+    }
+
+    const selectedEntries = byDate[ui.calendarioDia] || [];
+    const summaryHtml = (selectedEntries.length
+      ? selectedEntries.map(e => renderCalDayCard(grow, e)).join("")
+      : `<p class="cal-empty">Nenhum registro em ${formatDateBR(ui.calendarioDia)}.</p>`)
+      + renderCalRemindersBox(grow, ui.calendarioDia);
+
+    panel.innerHTML = `
+      <div class="cal-toolbar">
+        <div class="cal-nav">
+          <button class="btn btn-sm btn-icon" id="calPrev" title="Mês anterior">‹</button>
+          <span class="cal-month-label">${MESES_NOMES[mes - 1]} de ${ano}</span>
+          <button class="btn btn-sm btn-icon" id="calNext" title="Próximo mês">›</button>
+        </div>
+        <button class="btn-chip" id="calHoje">Hoje</button>
+      </div>
+      <div class="cal-layout">
+        <div class="cal-grid">
+          ${DIAS_SEMANA_CURTOS.map(d => `<span class="cal-weekday">${d}</span>`).join("")}
+          ${cells}
+        </div>
+        <div class="cal-summary">${summaryHtml}</div>
+      </div>
+    `;
+
+    const rerender = () => renderCalendarioPanel(grow, entries);
+    document.getElementById("calPrev").addEventListener("click", () => { ui.calendarioMes = addMonths(ui.calendarioMes, -1); rerender(); });
+    document.getElementById("calNext").addEventListener("click", () => { ui.calendarioMes = addMonths(ui.calendarioMes, 1); rerender(); });
+    document.getElementById("calHoje").addEventListener("click", () => { ui.calendarioDia = todayISO(); ui.calendarioMes = ui.calendarioDia.slice(0, 7); rerender(); });
+    panel.querySelectorAll(".cal-day[data-date]").forEach(el => {
+      el.addEventListener("click", () => { ui.calendarioDia = el.dataset.date; rerender(); });
+    });
+    wirePhotoClicks(panel);
+
+    const reminderAdd = document.getElementById("calReminderAdd");
+    if (reminderAdd) {
+      const input = document.getElementById("calReminderInput");
+      const add = () => {
+        const nota = input.value.trim();
+        if (!nota) { input.focus(); return; }
+        if (!Array.isArray(grow.reminders)) grow.reminders = [];
+        grow.reminders.push({ id: uid(), data: ui.calendarioDia, nota, criadoEm: Date.now() });
+        save();
+        rerender();
+        const next = document.getElementById("calReminderInput");
+        if (next) next.focus();
+      };
+      reminderAdd.addEventListener("click", add);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+    }
+    panel.querySelectorAll("[data-rem-del]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        grow.reminders = (grow.reminders || []).filter(r => r.id !== btn.dataset.remDel);
+        save();
+        rerender();
       });
     });
   }
@@ -2347,6 +2624,107 @@
      =========================================================== */
   let currentEntryNutrients = []; // [{nome, dose}]
 
+  /* ---------------------------------------------------------
+     FOTOS DO REGISTRO
+     --------------------------------------------------------- */
+  let currentEntryPhotos = []; // [{id, plantId, dataUrl}]
+  const PHOTO_MAX_DIM = 1280;
+  const PHOTO_QUALITY = 0.75;
+  const FOTO_HINT_DEFAULT = "Cada foto pode ser vinculada a uma planta do cultivo. As imagens são comprimidas antes de serem salvas junto do registro.";
+
+  function compressImageFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error(`Não foi possível ler "${file.name}".`));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error(`Formato de imagem não suportado: "${file.name}".`));
+        img.onload = () => {
+          let w = img.naturalWidth, h = img.naturalHeight;
+          const max = Math.max(w, h);
+          if (max > PHOTO_MAX_DIM) {
+            const scale = PHOTO_MAX_DIM / max;
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", PHOTO_QUALITY));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderEntryPhotosList() {
+    const wrap = document.getElementById("entryPhotoList");
+    const grow = getSelectedGrow();
+    if (!wrap || !grow) return;
+    if (!currentEntryPhotos.length) {
+      wrap.innerHTML = `<div class="entry-photo-empty">Nenhuma foto adicionada.</div>`;
+      return;
+    }
+    wrap.innerHTML = "";
+    currentEntryPhotos.forEach(photo => {
+      const item = document.createElement("div");
+      item.className = "entry-photo-item";
+      const optionsHtml = [
+        `<option value="">Sem planta específica</option>`,
+        ...grow.plants.map(p => `<option value="${escapeAttr(p.id)}" ${p.id === photo.plantId ? "selected" : ""}>${escapeHtml(p.nome)}</option>`)
+      ].join("");
+      item.innerHTML = `
+        <img class="entry-photo-thumb" src="${photo.dataUrl}" alt="">
+        <div class="entry-photo-info">
+          <label>Planta vinculada</label>
+          <select>${optionsHtml}</select>
+        </div>
+        <button type="button" class="icon-btn" title="Remover foto">✕</button>`;
+      item.querySelector("select").addEventListener("change", (e) => { photo.plantId = e.target.value; });
+      item.querySelector(".icon-btn").addEventListener("click", () => {
+        currentEntryPhotos = currentEntryPhotos.filter(p => p.id !== photo.id);
+        renderEntryPhotosList();
+      });
+      wrap.appendChild(item);
+    });
+  }
+
+  document.getElementById("btnAddFoto").addEventListener("click", () => {
+    if (!getSelectedGrow()) return;
+    document.getElementById("fotoFileInput").click();
+  });
+
+  document.getElementById("fotoFileInput").addEventListener("change", async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    const grow = getSelectedGrow();
+    if (!files.length || !grow) return;
+    const hint = document.getElementById("fotoHint");
+    const defaultPlantId = ((activePlants(grow)[0] || grow.plants[0] || {}).id) || "";
+    hint.textContent = `Comprimindo ${files.length} foto${files.length === 1 ? "" : "s"}...`;
+    for (const file of files) {
+      if (!file.type || !file.type.startsWith("image/")) {
+        showToast(`"${file.name}" não é uma imagem.`);
+        continue;
+      }
+      try {
+        const dataUrl = await compressImageFile(file);
+        currentEntryPhotos.push({ id: uid(), plantId: defaultPlantId, dataUrl });
+      } catch (err) {
+        showToast(err.message || "Não foi possível processar a foto.");
+      }
+    }
+    hint.textContent = FOTO_HINT_DEFAULT;
+    renderEntryPhotosList();
+    const totalChars = currentEntryPhotos.reduce((acc, p) => acc + p.dataUrl.length, 0);
+    if (totalChars > 4500000) showToast("Muitas fotos neste registro — o armazenamento local pode ficar cheio.");
+  });
+
   function populateSelect(selectEl, options, currentValue) {
     selectEl.innerHTML = options.map(o => `<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`).join("");
     if (currentValue && !options.includes(currentValue)) {
@@ -2526,6 +2904,9 @@
     currentEntryNutrients = entry ? (entry.nutrientes || []).map(n => ({ ...n })) : [];
     renderNutrientChipCategories(document.getElementById("nutrientChipList"), currentEntryNutrients, null);
 
+    currentEntryPhotos = entry ? (entry.photos || []).map(p => ({ ...p })) : [];
+    renderEntryPhotosList();
+
     document.getElementById("fLitros").value = entry ? entry.litros ?? "" : "";
     document.getElementById("fPhEntrada").value = entry ? entry.phEntrada ?? "" : "";
     document.getElementById("fPpmEntrada").value = entry ? entry.ppmEntrada ?? "" : "";
@@ -2634,6 +3015,7 @@
       ppfd: numOrNull(document.getElementById("fPpfd").value),
       dli: numOrNull(document.getElementById("fDli").value),
       observacoes: document.getElementById("fObservacoes").value.trim(),
+      photos: currentEntryPhotos.map(p => ({ id: p.id, plantId: p.plantId || "", dataUrl: p.dataUrl })),
       leituras
     };
 
