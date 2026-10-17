@@ -34,7 +34,7 @@
     "Daily Check": "daily",
     "Rega":        "rega",
     "Flush":       "flush",
-    "rega & Poda": "podapraga",
+    "Rega & Poda": "podapraga",
     "Rega & LST":  "regalst",
   };
   const ATIVIDADE_FALLBACK_PALETTE = ["alt-1", "alt-2", "alt-3", "alt-4"];
@@ -204,6 +204,7 @@
     tendenciasFiltro: { inicio: null, fim: null }, // null/null = mostrar todo o histórico
     calendarioMes: null, // "YYYY-MM" — meses visualizado no calendário
     calendarioDia: null, // "YYYY-MM-DD" — dia selecionado no calendário
+    registroReturnTab: null, // aba para onde voltar depois de salvar um registro criado pelo calendário
   };
 
   function uid() {
@@ -248,10 +249,15 @@
       }
     }
     delete parsed.nutrientCatalog;
+    parsed.nutrientCategories = parsed.nutrientCategories.filter(c => c && typeof c === "object" && typeof c.id === "string");
+    parsed.nutrients = parsed.nutrients.filter(n => n && typeof n === "object" && typeof n.nome === "string");
     if (!Array.isArray(parsed.activityCatalog)) parsed.activityCatalog = ATIVIDADES_PADRAO.slice();
+    parsed.activityCatalog = parsed.activityCatalog.filter(a => typeof a === "string" && a.trim() !== "");
     if (!Array.isArray(parsed.nutritionPrograms)) parsed.nutritionPrograms = [];
+    parsed.nutritionPrograms = parsed.nutritionPrograms.filter(p => p && typeof p === "object");
     parsed.nutritionPrograms.forEach(p => {
       if (!Array.isArray(p.semanas)) p.semanas = [];
+      p.semanas = p.semanas.filter(s => s && typeof s === "object");
       p.semanas.forEach(s => {
         if (!Array.isArray(s.numeros)) {
           s.numeros = (typeof s.numero === "number") ? [s.numero] : [];
@@ -259,15 +265,22 @@
         }
         if (!s.id) s.id = uid();
         if (!Array.isArray(s.itens)) s.itens = [];
+        s.itens = s.itens.filter(it => it && typeof it === "object");
       });
     });
     if (!Array.isArray(parsed.grows)) parsed.grows = [];
+    parsed.grows = parsed.grows.filter(g => g && typeof g === "object");
     parsed.grows.forEach(g => {
       if (!("programaId" in g)) g.programaId = null;
       if (!TIPOS_CULTIVO[g.tipo]) g.tipo = "fotoperiodo";
       if (typeof g.finalizado !== "boolean") g.finalizado = false;
       if (!Array.isArray(g.plants)) g.plants = [];
+      g.plants = g.plants.filter(p => p && typeof p === "object");
       if (!Array.isArray(g.entries)) g.entries = [];
+      g.entries = g.entries.filter(e => e && typeof e === "object" && typeof e.data === "string");
+      g.entries.forEach(e => {
+        if (typeof e.criadoEm !== "number") e.criadoEm = 0;
+      });
     });
     return parsed;
   }
@@ -545,6 +558,7 @@
     return Number.isFinite(d) ? d + 1 : null;
   }
   function formatDateBR(iso) {
+    if (typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
     const [y, m, d] = iso.split("-");
     return `${d}/${m}/${y}`;
   }
@@ -753,6 +767,7 @@
      RENDER: MAIN
      =========================================================== */
   function renderAll() {
+    if (!getGrow(state.selectedGrowId) && state.grows.length) state.selectedGrowId = state.grows[0].id;
     renderSidebar();
     renderMain();
   }
@@ -892,6 +907,7 @@
 
   function estimateHarvestWindow(grow, chrono) {
     if (!chrono.length) return null;
+    if (typeof grow.dataInicio !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(grow.dataInicio)) return null;
     if (grow.tipo === "automatica") {
       const minDay = 70, maxDay = 100;
       return {
@@ -1210,7 +1226,8 @@
       for (const e of entries) {
         if (e.leituras && e.leituras[p.id]) { lastReading = e.leituras[p.id]; lastDate = e.data; break; }
       }
-      const day = p.dataInicio ? daysBetween(p.dataInicio, todayISO()) + 1 : null;
+      const dayDiff = p.dataInicio ? daysBetween(p.dataInicio, todayISO()) + 1 : null;
+      const day = Number.isFinite(dayDiff) ? dayDiff : null;
       const phSt = lastReading ? phStatus(lastReading.phSaida, grow.tipo) : null;
       return `
         <div class="plant-card">
@@ -1428,10 +1445,12 @@
     }
 
     const selectedEntries = byDate[ui.calendarioDia] || [];
-    const summaryHtml = (selectedEntries.length
-      ? selectedEntries.map(e => renderCalDayCard(grow, e)).join("")
-      : `<p class="cal-empty">Nenhum registro em ${formatDateBR(ui.calendarioDia)}.</p>`)
-      + renderCalRemindersBox(grow, ui.calendarioDia);
+    const summaryHtml = `
+      <button class="btn btn-primary btn-sm cal-add-entry" id="calAddEntry">+ Adicionar registro em ${formatDateBR(ui.calendarioDia)}</button>
+      ${selectedEntries.length
+        ? selectedEntries.map(e => renderCalDayCard(grow, e)).join("")
+        : `<p class="cal-empty">Nenhum registro em ${formatDateBR(ui.calendarioDia)}.</p>`}
+      ${renderCalRemindersBox(grow, ui.calendarioDia)}`;
 
     panel.innerHTML = `
       <div class="cal-toolbar">
@@ -1455,6 +1474,7 @@
     document.getElementById("calPrev").addEventListener("click", () => { ui.calendarioMes = addMonths(ui.calendarioMes, -1); rerender(); });
     document.getElementById("calNext").addEventListener("click", () => { ui.calendarioMes = addMonths(ui.calendarioMes, 1); rerender(); });
     document.getElementById("calHoje").addEventListener("click", () => { ui.calendarioDia = todayISO(); ui.calendarioMes = ui.calendarioDia.slice(0, 7); rerender(); });
+    document.getElementById("calAddEntry").addEventListener("click", () => openRegistroModal(null, ui.calendarioDia, "calendario"));
     panel.querySelectorAll(".cal-day[data-date]").forEach(el => {
       el.addEventListener("click", () => { ui.calendarioDia = el.dataset.date; rerender(); });
     });
@@ -1502,12 +1522,14 @@
     const minDate = chronoAll[0].data;
     const maxDate = chronoAll[chronoAll.length - 1].data;
     const filtro = ui.tendenciasFiltro || { inicio: null, fim: null };
-    const inicio = filtro.inicio || minDate;
-    const fim = filtro.fim || maxDate;
+    const clampRange = (v, lo, hi) => (v < lo ? lo : (v > hi ? hi : v));
+    const inicio = clampRange(filtro.inicio || minDate, minDate, maxDate);
+    const fim = clampRange(filtro.fim || maxDate, minDate, maxDate);
     const chrono = chronoAll.filter(e => e.data >= inicio && e.data <= fim);
 
     function isPresetActive(preset) {
       if (preset === "all") return !filtro.inicio && !filtro.fim;
+      if (!filtro.inicio && !filtro.fim) return false;
       const days = parseInt(preset, 10);
       const wantInicio = addDaysISO(maxDate, -(days - 1));
       const clampedInicio = wantInicio < minDate ? minDate : wantInicio;
@@ -1819,6 +1841,7 @@
   }
 
   function formatDateShort(iso) {
+    if (typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
     const [, m, d] = iso.split("-");
     return `${d}/${m}`;
   }
@@ -2908,17 +2931,18 @@
     });
   }
 
-  function openRegistroModal(entryId) {
+  function openRegistroModal(entryId, presetDate, returnTab) {
     const grow = getSelectedGrow();
     if (!grow) return;
     ui.editingRegistroId = entryId;
+    ui.registroReturnTab = returnTab || null;
     const isEdit = !!entryId;
     const entry = isEdit ? grow.entries.find(e => e.id === entryId) : null;
 
     document.getElementById("modalRegistroTitle").textContent = isEdit ? "Editar registro" : "Novo registro";
     document.getElementById("formRegistroError").classList.remove("show");
 
-    document.getElementById("fData").value = entry ? entry.data : todayISO();
+    document.getElementById("fData").value = entry ? entry.data : (presetDate || todayISO());
     populateSelect(document.getElementById("fEstagio"), ESTAGIOS, entry ? entry.estagio : (lastEstagio(grow) || ESTAGIOS[0]));
     populateSelect(document.getElementById("fAtividade"), state.activityCatalog.concat(["__custom__"]), entry ? entry.atividade : state.activityCatalog[0]);
     fixCustomOptionLabel();
@@ -3052,7 +3076,8 @@
 
     save();
     closeAllModals();
-    ui.activeTab = "registros";
+    ui.activeTab = ui.registroReturnTab || "registros";
+    ui.registroReturnTab = null;
     renderAll();
     showToast("Registro salvo.");
   });

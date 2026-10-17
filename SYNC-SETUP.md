@@ -27,24 +27,24 @@ No painel do Supabase, abra **SQL Editor** → **New query**, cole o SQL
 abaixo e rode:
 
 ```sql
-create table if not exists public.growbro_data (
+create table if not exists public.user_data (
   user_id uuid primary key references auth.users(id) on delete cascade,
   data jsonb not null,
   updated_at timestamptz not null default now()
 );
 
-alter table public.growbro_data enable row level security;
+alter table public.user_data enable row level security;
 
-create policy "growbro_select_own"
-  on public.growbro_data for select
+create policy "user_data_select_own"
+  on public.user_data for select
   using (auth.uid() = user_id);
 
-create policy "growbro_insert_own"
-  on public.growbro_data for insert
+create policy "user_data_insert_own"
+  on public.user_data for insert
   with check (auth.uid() = user_id);
 
-create policy "growbro_update_own"
-  on public.growbro_data for update
+create policy "user_data_update_own"
+  on public.user_data for update
   using (auth.uid() = user_id);
 ```
 
@@ -82,7 +82,7 @@ depois de passar pelo Google.
 
 1. No painel do Supabase: **Authentication → URL Configuration**.
 2. Em **Site URL**, coloque a URL onde o GrowBro vai ficar hospedado
-   (ex: `https://seu-usuario.github.io/growbro/`).
+   (ex: `https://caioklein.github.io/grow-bro/`).
 3. Em **Redirect URLs**, adicione a mesma URL (pode adicionar mais de uma,
    por exemplo uma para produção e outra para testes locais, como
    `http://localhost:5500`).
@@ -98,10 +98,11 @@ limitação deste app. O resto do GrowBro (tudo que não é login) continua
 funcionando 100% localmente, sem servidor nenhum, como sempre funcionou.
 
 Formas rápidas e gratuitas de hospedar:
-- **GitHub Pages**: suba `index.html` e `app.js` para um repositório e
-  ative Pages nas configurações. Use a URL gerada nos passos 3 e 4.
+- **GitHub Pages**: suba todos os arquivos do app (`index.html`, `app.js`,
+  `config.js` e `pix-qrcode.png`) para um repositório e ative Pages nas
+  configurações. Use a URL gerada nos passos 3 e 4.
 - **Netlify Drop** ([app.netlify.com/drop](https://app.netlify.com/drop)):
-  arraste a pasta com os dois arquivos, pronto.
+  arraste a pasta do projeto, pronto.
 - **Teste local**: `npx serve` (ou qualquer servidor estático) na pasta do
   projeto, e use `http://localhost:PORTA` nos passos 3 e 4 enquanto testa.
 
@@ -113,9 +114,9 @@ Formas rápidas e gratuitas de hospedar:
   (de outro aparelho) e este aparelho está vazio: adota os dados da nuvem
   automaticamente, sem perguntar.
 - **Se este aparelho já tem dados locais** e a nuvem também tem dados
-  diferentes: o app pergunta qual usar — **nunca escolhe sozinho** nesse
-  caso, mesmo que um pareça "mais recente", porque isso poderia apagar
-  histórico de outro aparelho sem avisar.
+  diferentes: a cópia **mais recente vence** — o app compara o horário do
+  último salvamento local com o `updated_at` da nuvem e mantém a mais nova
+  dos dois lados (em empate, vale a da nuvem).
 - **Depois de sincronizado**, qualquer alteração (novo registro, editar
   planta, etc.) é enviada para a nuvem automaticamente, cerca de 1
   segundo depois da alteração.

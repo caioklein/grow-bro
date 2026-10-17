@@ -96,15 +96,13 @@ em algo que dá pra *olhar* e entender de relance.
   faixa) de acordo com o estágio e o tipo de cultivo, em tempo real enquanto você digita.
 - Cada tipo de atividade tem sua própria cor.
 - Barra lateral **recolhível** no desktop, com avatares coloridos por cultivo — o estado fica salvo.
-- **Layout dedicado para celular**: a barra lateral vira uma gaveta, a tabela de registros vira
-  cartões, os modais ocupam a tela toda e um botão flutuante substitui o "+ Novo registro" do topo
-  — mesma identidade visual, pensado para uso com o polegar.
 
 ### ☁️ Sincronização com Google
 - Entre com sua conta Google para sincronizar os cultivos entre vários aparelhos.
 - Sem login, o app funciona 100% offline como sempre — a sincronização é opcional.
 - Ao logar, se um aparelho estiver vazio e o outro tiver dados, adota o que existe automaticamente;
-  se os dois tiverem dados diferentes, **pergunta antes de sobrescrever** qualquer um dos lados.
+  se os dois tiverem dados diferentes, a **cópia mais recente prevalece** (pelo horário do último
+  salvamento).
 - Configuração (chaves, SQL, painel do Supabase) em [`SYNC-SETUP.md`](./SYNC-SETUP.md) — leva uns
   10 minutos e só precisa ser feito uma vez.
 
@@ -112,8 +110,8 @@ em algo que dá pra *olhar* e entender de relance.
 
 Não tem build, não tem instalação, não precisa de Node nem de servidor.
 
-1. Baixe `index.html` e `app.js` para a **mesma pasta**.
-2. Abra `index.html` num navegador (desktop ou celular — o layout se adapta sozinho).
+1. Baixe `index.html`, `app.js`, `config.js` e `pix-qrcode.png` para a **mesma pasta**.
+2. Abra `index.html` num navegador.
 3. Pronto. Crie seu primeiro cultivo e comece a registrar.
 
 > Internet é usada para carregar as fontes (Google Fonts), a biblioteca de leitura de planilhas
@@ -130,6 +128,8 @@ Não tem build, não tem instalação, não precisa de Node nem de servidor.
 .
 ├── index.html        # estrutura, estilos (design system em CSS custom properties) e modais
 ├── app.js             # toda a lógica do app: estado, renderização, gráficos, importação, sync
+├── config.js          # credenciais públicas do Supabase (só necessárias para a sincronização)
+├── pix-qrcode.png     # QR code do PIX exibido no modal "Apoie-me"
 ├── README.md
 └── SYNC-SETUP.md      # passo a passo pra ativar a sincronização com Google
 ```
@@ -151,8 +151,6 @@ JS "vanilla" bem organizados.
   template e converte cada aba num cultivo.
 - **Cálculos**: VPD (com ajuste de temperatura foliar), DLI e as faixas ideais de pH/VPD/luz são
   calculados em funções puras isoladas, fáceis de testar e ajustar.
-- **Layout mobile**: media queries reorganizam sidebar, tabela e modais abaixo de 780px de largura —
-  o mesmo HTML e os mesmos dados, só a apresentação muda.
 - **Sincronização**: [Supabase](https://supabase.com/) cuida do login com Google e guarda o estado
   inteiro como JSON numa tabela protegida por Row Level Security (uma linha por usuário). O app só
   fala com a Supabase pela URL do projeto e a chave pública — o Client Secret do Google fica só no
@@ -175,7 +173,8 @@ Essas faixas alimentam os selos coloridos de pH/VPD e as dicas de PPFD/DLI. São
 | Estágio | Faixa ideal (kPa) |
 |---|---|
 | Germinação / Muda | 0,4 – 0,8 |
-| Vegetativo / Pré-floração | 0,8 – 1,2 |
+| Vegetativo | 0,8 – 1,2 |
+| Pré-floração | 0,9 – 1,2 |
 | Floração / Flush | 1,0 – 1,5 |
 
 **Estimativa de colheita**
@@ -201,9 +200,10 @@ para nenhum servidor. Isso também quer dizer:
 
 Ideias que ficaram de fora por enquanto, mas fariam sentido num próximo passo:
 
-- [ ] Exportar/importar um backup em JSON de todos os cultivos.
-- [ ] Modo escuro.
-- [ ] Anexar fotos às plantas/registros.
+- [x] Exportar um backup em JSON de todos os cultivos.
+- [x] Modo escuro.
+- [x] Anexar fotos às plantas/registros.
+- [ ] Importar um backup em JSON (hoje a importação é só de planilha `.xlsx`).
 - [ ] PWA instalável com funcionamento 100% offline garantido.
 
 ## 🤝 Contribuindo
