@@ -1330,6 +1330,9 @@
     if (e.key === "Escape" && !document.getElementById("photoLightbox").hidden) closePhotoLightbox();
   });
 
+  const ICON_BELL = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;" aria-hidden="true"><path d="M18.5 16v-5a6.5 6.5 0 0 0-13 0v5l-1.6 2.7h16.2z"/><path d="M10.2 21a2 2 0 0 0 3.6 0"/></svg>';
+  const ICON_CAM = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;" aria-hidden="true"><path d="M3.5 8h3.2L8.2 5.5h7.6L17.3 8h3.2v12.5H3.5z"/><circle cx="12" cy="13.8" r="3.4"/></svg>';
+
   function renderCalDayCard(grow, entry) {
     const ac = activityColor(entry.atividade);
     const vpdSt = vpdStatus(entry.vpd, entry.estagio);
@@ -1391,7 +1394,7 @@
       : "";
     return `
       <div class="cal-reminder-box">
-        <h4>🔔 Lembretes</h4>
+        <h4>${ICON_BELL}Lembretes</h4>
         ${listHtml}
         ${formHtml}
       </div>`;
@@ -1433,14 +1436,14 @@
         return `<span class="cal-act-pill" style="background:${ac.bg}; color:${ac.fg};">${escapeHtml(e.atividade)}</span>`;
       }).join("");
       const morePill = dayEntries.length > 2 ? `<span class="cal-act-pill cal-act-more">+${dayEntries.length - 2}</span>` : "";
-      const remPills = dayReminders.slice(0, 2).map(r => `<span class="cal-act-pill cal-rem-pill">🔔 ${escapeHtml(r.nota)}</span>`).join("");
+      const remPills = dayReminders.slice(0, 2).map(r => `<span class="cal-act-pill cal-rem-pill">${ICON_BELL}${escapeHtml(r.nota)}</span>`).join("");
       const remMorePill = dayReminders.length > 2 ? `<span class="cal-act-pill cal-act-more">+${dayReminders.length - 2}</span>` : "";
-      const title = dayEntries.map(e => e.atividade).concat(dayReminders.map(r => "🔔 " + r.nota)).join(" · ");
+      const title = dayEntries.map(e => e.atividade).concat(dayReminders.map(r => "Lembrete: " + r.nota)).join(" · ");
       cells += `
         <div class="cal-day ${hasEntry ? "has-entry" : ""} ${ui.calendarioDia === iso ? "selected" : ""} ${iso === today ? "today" : ""}" data-date="${iso}"${title ? ` title="${escapeAttr(title)}"` : ""}>
           <span class="cal-day-num">${d}</span>
           ${(hasEntry || dayReminders.length) ? `<span class="cal-day-pills">${pills}${morePill}${remPills}${remMorePill}</span>` : ""}
-          ${firstPhoto ? `<span class="cal-day-thumb-wrap"><img class="cal-day-thumb" src="${firstPhoto}" alt="">${photoCount > 1 ? `<span class="cal-day-thumb-count">📷 ${photoCount}</span>` : ""}</span>` : ""}
+          ${firstPhoto ? `<span class="cal-day-thumb-wrap"><img class="cal-day-thumb" src="${firstPhoto}" alt="">${photoCount > 1 ? `<span class="cal-day-thumb-count">${ICON_CAM}${photoCount}</span>` : ""}</span>` : ""}
         </div>`;
     }
 
@@ -1738,7 +1741,7 @@
     labelIdxs.forEach(i => {
       const x = xFor(i);
       const anchor = i === 0 ? "start" : (i === n - 1 ? "end" : "middle");
-      xLabels += `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="10" style="fill:var(--text-faint)" text-anchor="${anchor}" font-family="IBM Plex Sans, sans-serif">${formatDateShort(dates[i])}</text>`;
+      xLabels += `<text x="${x.toFixed(1)}" y="${H - 6}" font-size="10" style="fill:var(--text-faint); font-family:var(--font-ui)" text-anchor="${anchor}">${formatDateShort(dates[i])}</text>`;
     });
 
     let paths = "";
@@ -3116,6 +3119,8 @@
      controles e persistimos a escolha.
      --------------------------------------------------------- */
   const THEME_KEY = "diario-cultivo:theme";
+  const ICON_SUN_SM = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.4M12 19.1v2.4M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.9 19.1l1.7-1.7M17.4 6.6l1.7-1.7"/></svg>';
+  const ICON_MOON_SM = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13.6A8.2 8.2 0 1 1 10.4 4a6.6 6.6 0 0 0 9.6 9.6z"/></svg>';
   function temaAtual() {
     return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   }
@@ -3127,7 +3132,7 @@
     const icon = document.getElementById("btnTemaIcon");
     const label = document.getElementById("btnTemaLabel");
     const btn = document.getElementById("btnTema");
-    if (icon) icon.textContent = tema === "dark" ? "☀️" : "🌙";
+    if (icon) icon.innerHTML = tema === "dark" ? ICON_SUN_SM : ICON_MOON_SM;
     if (label) label.textContent = tema === "dark" ? "Tema claro" : "Tema escuro";
     if (btn) btn.setAttribute("aria-pressed", String(tema === "dark"));
   }

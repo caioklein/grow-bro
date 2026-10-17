@@ -38,9 +38,9 @@ direta de planilhas.
 ## 🌱 Por que este projeto existe
 
 Planilhas de cultivo funcionam, mas ficam confusas rápido: abas demais, fórmulas quebradas, sem
-visão geral, sem gráficos de verdade. O **GrowBro** é a alternativa — um app de página
+visão geral, sem gráficos de verdade e grátis de verdade. O **GrowBro** é a alternativa: um app de página
 única que roda direto no navegador, guarda tudo no seu computador, e transforma anotações diárias
-em algo que dá pra *olhar* e entender de relance.
+em algo que dá pra *olhar* e entender de relance. Feito por alguém que realmente vai utilizar a ferramenta no próprio cultivo.
 
 
 ## ✨ Funcionalidades
@@ -58,6 +58,8 @@ em algo que dá pra *olhar* e entender de relance.
 - **VPD sempre calculado automaticamente** a partir de temperatura e umidade, já considerando a
   folha ~2 °C mais fria que o ar.
 - Campo livre de **observações** por registro.
+- Adicione fotos para acompanhar o crescimento de suas plantas!
+- Um calendário fácil de utilizar para programação e fácil acesso de registros passados.
 - Data pré-preenchida com o dia atual, mas sempre editável.
 - Clique em qualquer linha da tabela de registros para expandir os detalhes.
 
@@ -107,6 +109,14 @@ em algo que dá pra *olhar* e entender de relance.
   10 minutos e só precisa ser feito uma vez.
 
 ## 🚀 Como usar
+
+Você tem duas opções:
+
+A. Opção fácil marmelada de marmelo:
+	Você abre a página desse projeto: https://caioklein.github.io/grow-bro/ e é feliz!
+	PS: Dê um ctrl+f5 periodicamente para ver se você não tá usando uma versão antiga da página no cache do seu navegador
+	
+B. Opção difícil mas você sabe o que tá fazendo pq é bem inteligente:
 
 Não tem build, não tem instalação, não precisa de Node nem de servidor.
 
